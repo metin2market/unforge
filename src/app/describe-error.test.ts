@@ -53,6 +53,9 @@ describe("describeError", () => {
     expect(d.summary).toMatch(/won't issue a login code/);
     // The likely cause must come before the rarely-applicable email one.
     expect(d.summary.indexOf("outstanding")).toBeLessThan(d.summary.indexOf("email"));
+    // It must tell the user NOT to retry: if the cause is a login block, every attempt
+    // restarts the cooldown, so the obvious response is the one that prolongs it.
+    expect(d.summary).toMatch(/[Dd]on't retry/);
   });
 
   test("explains a refused device attestation without blaming the caller", () => {

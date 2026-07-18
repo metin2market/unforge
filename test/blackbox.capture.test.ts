@@ -72,6 +72,8 @@ d("real iovation blackboxes (raw tra:)", () => {
       const f = decodeBlackbox(tra);
       for (const i of [1, 7, 9]) expect(typeof f[i]).toBe("string"); // timeZone, languages, GPU
       for (const i of [5, 6, 12, 13, 18, 20]) expect(typeof f[i]).toBe("number"); // RAM/cores/screen/audio/canvas
+      // deviceMemory oracle: spec-clamped to a power of two ≤ 8, so DEVICE_MEMORY_GB is in range.
+      expect([0.25, 0.5, 1, 2, 4, 8]).toContain(f[5] as number);
       for (const i of [10, 11, 14, 15, 16, 17, 19]) expect(f[i]).toMatch(hash); // opaque hashes
     }
   });

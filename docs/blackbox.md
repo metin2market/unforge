@@ -59,13 +59,22 @@ fingerprint (a red-bar-avoidance win — churny fingerprints are a trigger). Thi
 exactly what the Go libs do: `alaingilbert` persists a device under
 `~/.ogame/devices/<name>` and refreshes timestamps via an injectable `NowFunc`.
 
+"Plausible" is a stronger requirement than it sounds, and it constrains _how_ the fields are
+generated, not just their shape — the values have to be mutually consistent, because on real
+hardware they are not independent. `device.ts` builds a whole machine rather than picking each
+field separately, takes the clock and languages from the account's region, and respects the limits
+the browser itself imposes (`navigator.deviceMemory` is spec-clamped to ≤ 8, so a "32 GB" device is
+not implausible but impossible). What this does _not_ solve is in
+[red-bar.md](./red-bar.md#what-unforge-does-instead).
+
 **Implemented** in `src/core/blackbox/` — pure, browser-free:
 
 - [`generate.ts`](../src/core/blackbox/generate.ts) — `generateBlackbox()` and the
   `encodeBlackboxBody()` transform, verified byte-for-byte against real captured
   launcher blackboxes.
 - [`device.ts`](../src/core/blackbox/device.ts) — the `DeviceProfile` (a stable
-  virtual device) with a sensible Windows/Chrome default.
+  virtual device). There is no shared default: one is minted per GameForge account
+  and kept forever, since a fingerprint that changes between logins is itself a flag.
 - [`identity.ts`](../src/core/blackbox/identity.ts) — the persisted per-account
   `clientId` + drifting `x-vec` signature (game1 keeps these in localStorage);
   `createDeviceIdentity()` / `driftVector()`.

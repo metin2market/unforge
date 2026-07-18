@@ -12,7 +12,7 @@
 //   • state is readable (snapshot) and observable (subscribe), in plain JSON.
 
 import { getLogger } from "@logtape/logtape";
-import type { GameAccount } from "../core/index.ts";
+import { UnauthorizedError, type GameAccount } from "../core/index.ts";
 import { errorMessage } from "../util/index.ts";
 import { findClientDir, spawnClient } from "../launch/index.ts";
 import {
@@ -188,24 +188,47 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
    * A session for a stored account, reusing its cached token when it's still good — re-auth
    * churn is a risk-scoring trigger, so the token is the cheap path, not just an optimisation.
    * Persists the drifted device (and any fresh token) afterwards.
+   *
+   * `TOKEN_TTL_MS` is a guess (GameForge publishes no expiry), so a cached token can be dead
+   * while we still believe in it. That surfaces as a `401` on whatever the caller was doing,
+   * and without recovery every command fails until our own TTL happens to lapse — up to an
+   * hour of a working account looking broken. So a resumed session that comes back
+   * unauthorized can re-authenticate **once** and retry. Only for resumed sessions: a `401` on
+   * a token minted seconds earlier is a real rejection, and retrying it would be a login loop.
+   *
+   * The retry replays the *whole* callback, so it's opt-in via `retryable` — a `fn` that acts
+   * before it reads would act twice if the `401` lands on the read.
    */
   async function withSession<T>(
     account: GfAccountWithSecrets,
     fn: (session: GfSession) => Promise<T>,
+    { retryable = false }: { retryable?: boolean } = {},
   ): Promise<T> {
     const p = await sessionPolicy();
     const cached = account.secrets.token;
-    const fresh = !cached || cached.expiresAt <= Date.now();
-    const session = fresh
-      ? await openGfSession(
-          { email: account.email, password: account.secrets.password },
-          account.secrets.device,
-          p,
-        )
+    const authenticate = (): Promise<GfSession> =>
+      openGfSession(
+        { email: account.email, password: account.secrets.password },
+        account.secrets.device,
+        p,
+      );
+
+    const stale = cached === undefined || cached.expiresAt <= Date.now();
+    let fresh = stale;
+    let session = stale
+      ? await authenticate()
       : resumeGfSession(cached.token, account.secrets.device, p);
 
     try {
-      return await fn(session);
+      try {
+        return await fn(session);
+      } catch (err) {
+        if (fresh || !retryable || !(err instanceof UnauthorizedError)) throw err;
+        log.debug("cached session rejected — re-authenticating once and retrying");
+        session = await authenticate();
+        fresh = true;
+        return await fn(session);
+      }
     } finally {
       // One write: the drifted device and the token land together, so a crash can't desync them.
       await store.save(account.id, {
@@ -273,7 +296,9 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       const prior = store.list().find((a) => a.email.toLowerCase() === input.email.toLowerCase());
       // Reuse this account's device forever — a fingerprint that changes between logins is
       // itself a flag; a shared one correlates accounts.
-      const device = prior ? store.get(prior.id)!.secrets.device : createDevice();
+      const device = prior
+        ? store.get(prior.id)!.secrets.device
+        : createDevice(input.region ?? region);
       log.debug("sessions: authenticating {email} ({which} device)", {
         email: input.email,
         which: prior ? "existing" : "new",
@@ -294,7 +319,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       }
       const session = await registerGfSession(
         { email: input.email, password: input.password },
-        createDevice(),
+        createDevice(input.region ?? region),
         await sessionPolicy(),
       );
       return persistSession(session, input);
@@ -319,7 +344,8 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
 
     async regenDevice(ref) {
       const target = resolveGfAccount(store.list(), ref);
-      const device = createDevice();
+      // The login's own region, not the app default — else the cleanup introduces a mismatch.
+      const device = createDevice(target.gameAccounts[0]?.region ?? region);
       // Keep the cached token: it's account-level, not device-bound.
       await store.save(target.id, { device });
       return { email: target.email, device };
@@ -360,6 +386,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         });
       }
 
+      // Not `retryable`: a 401 on the re-list would replay the create, making a second account.
       const created = await withSession(account, async (session) => {
         const made = await session.createGameAccount(input.displayName, { region: createIn });
         log.info("created game account '{name}' in {region}", {
@@ -391,11 +418,16 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       const { gfId, game } = resolveGameAccount(store.list(), ref);
       const gf = store.get(gfId)!;
       // The numeric id rides along: whoever consumes a code has to answer the client with it.
-      return withSession(gf, async (session) => {
-        const remote = pickRemote(await session.accounts(), game);
-        const code = await session.mintCode(remote, { region: game.region });
-        return { code, account: game, numericId: remote.numericId };
-      });
+      // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
+      return withSession(
+        gf,
+        async (session) => {
+          const remote = pickRemote(await session.accounts(), game);
+          const code = await session.mintCode(remote, { region: game.region });
+          return { code, account: game, numericId: remote.numericId };
+        },
+        { retryable: true },
+      );
     },
   };
 
@@ -428,11 +460,19 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       launches.add(state);
 
       try {
-        const { code, remote } = await withSession(gf, async (session) => {
-          const all = await session.accounts();
-          const target = pickRemote(all, game);
-          return { code: await session.mintCode(target, { region: game.region }), remote: target };
-        });
+        // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
+        const { code, remote } = await withSession(
+          gf,
+          async (session) => {
+            const all = await session.accounts();
+            const target = pickRemote(all, game);
+            return {
+              code: await session.mintCode(target, { region: game.region }),
+              remote: target,
+            };
+          },
+          { retryable: true },
+        );
 
         launches.update(state.id, { status: "spawning" });
         const sessionId = pipe.register({

@@ -48,8 +48,9 @@ export class UnauthorizedError extends UnforgeError {
  *   2. A previous code is still outstanding — a launch that died before the client consumed its
  *      code holds it for ~18 min. This clears on its own; retrying sooner just re-auths for
  *      nothing and feeds GameForge's risk scoring.
- *   3. The account can't play right now — a login block ("red bar"), or the game account is
- *      otherwise not eligible on this device.
+ *   3. The login can't play — a block ("red bar"), which applies to the whole GameForge login
+ *      rather than one game account, or an account GF has retired. Do not retry to find out:
+ *      attempts may extend a block (docs/red-bar.md).
  *   4. The account isn't activated — a freshly-registered GF account whose email hasn't been
  *      verified. Only applies to new accounts, and waiting won't fix it.
  *

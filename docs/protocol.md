@@ -135,17 +135,20 @@ body never says which cause applies. Four produce it, in rough order of how ofte
    re-authenticates for nothing and feeds GF's risk scoring. Observed to last longer than 18
    minutes, and to correlate with **fresh devices**: minting a new installation id + fingerprint
    and requesting a code moments later is the churn pattern GF scores against
-   ([red-bar.md](./red-bar.md)). One measured case cleared by itself after ~37 minutes.
+   ([red-bar.md](./red-bar.md)). One measured case cleared by itself after ~37 minutes. **Do not
+   retry to find out which** — if it is cause 3 rather than this one, each attempt restarts the
+   block ([red-bar.md](./red-bar.md#dont-retry-while-blocked)).
 2. **The region is wrong** — `gameId` is sent as `<gameId>.<region>`, and a region that isn't where
    the account lives is refused exactly like the rest. See [Regions](#regions).
-3. **The login can't play** — a block ("red bar"), an account GF has deleted or scheduled for
-   deletion (`deleted` / `preDeleted` on `user/accounts`), or one otherwise ineligible. A block is
-   **per GameForge login, not per game account, and does not clear on its own**: one measured login
-   refused on every game account — including one created seconds earlier, so no code could have
-   been outstanding — for over two days, while another login minted normally in the same minute.
-   Nothing readable detects it: `user/me` `validated`, the account's `accountGroup`/deletion flags,
-   and even `user/game/<gameId>/environment/<envId>` → `permissions: ["play","install"]` were all
-   clean for the blocked login. Only attempting a mint reveals it.
+3. **The login can't play** — a block ("red bar", [red-bar.md](./red-bar.md)), an account GF has
+   deleted or scheduled for deletion (`deleted` / `preDeleted` on `user/accounts`), or one
+   otherwise ineligible. A block is **per GameForge login, not per game account**: one measured
+   login refused on every game account — including one created seconds earlier, so no code could
+   have been outstanding — while a second login minted normally in the same minute. It stayed
+   refused across two days, though attempts were made throughout, and retrying may itself extend a
+   block, so that duration is not evidence of anything. **Nothing readable detects it**: `user/me`
+   `validated`, the deletion flags, and `user/game/<gameId>/environment/<envId>` →
+   `permissions: ["play","install"]` were all clean for the blocked login.
 4. **The account isn't activated** — a freshly-registered GF login whose email hasn't been
    confirmed (`validated` is null on `user/me`; see
    [Registering](#registering-a-gameforge-account)). New accounts only, and waiting won't fix it.
@@ -155,10 +158,10 @@ itself — the region mismatch and the deletion stamp — so a caller can name t
 a user to wait out a hold that was never the problem. Nothing in the response distinguishes the
 rest.
 
-**Isolating one:** mint for a sibling on the same login, then for an account on a _different_
-login. A sibling that succeeds rules out the login, token, device, and region in one call, leaving
-only per-account state; a different login that succeeds while this one keeps failing is the block
-in cause 3. Both were needed to tell those two apart — the sibling test alone reads as "transient".
+**Isolating one:** a sibling account on the same login rules out the login, token, device and
+region in a single call; an account on a _different_ login separates cause 3 from a wider outage.
+Budget **one attempt each** — a mint is not a free probe, and if the cause is a block, attempts may
+prolong it ([red-bar.md](./red-bar.md#dont-retry-while-blocked)).
 
 ## Regions
 

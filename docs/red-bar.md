@@ -80,6 +80,24 @@ So: **try a spare account first.** It works → the device state is fine by cons
 can only add churn. It fails too → now the shared ID or the IP is implicated, and a reset is
 worth trying.
 
+## Don't retry while blocked
+
+Community advice is consistent: during a block, make **no** further attempt for several hours. One
+report gives a mechanism — that each attempt restarts the counter — which would explain why the
+wait never ends for people who keep trying. **Unverified**, and resting on a single message, but it
+costs nothing to assume: a retry has no upside here either way.
+
+Hunt2's staff (the bot vendor, not GameForge) describe the block as temporary, caused by logging in
+too often or by a flagged IP, clearing in ~12–24 h, and unaffected by switching to manual login.
+
+So a refusal is a signal to **stop**, and repeated attempts are a bad way to diagnose one — isolate
+with a _different_ login, once. Note the ~18-minute figure belongs to an outstanding login _code_
+([protocol.md](./protocol.md)); that is a different mechanism.
+
+One further report, unverified and worth knowing only because it fits an error we hit: account
+_creation_ is refused while a login is blocked, which would explain a `409 ACCOUNT_CREATION_FAILED`
+without any per-login account limit.
+
 ## The cleanup script
 
 [`scripts/gfclear.bat`](../scripts/gfclear.bat) resets local GameForge state. Honestly, per wipe:
@@ -112,6 +130,18 @@ deliberately, once, after the spare-account test — never on a schedule.
 - **Surgical when you do need a reset.** `unforge auth device regen` rolls one account's device
   and leaves every other account's continuity intact — the cleaner's intent, without the
   collateral.
+- **Coherent, not accurate.** Synthetic fingerprints pass, so the bar is only whether the device
+  _could exist_ — it builds a whole machine instead of picking each field independently
+  ([blackbox.md](./blackbox.md)). The opaque hashes stay random per device, which is what keeps
+  two accounts from reading as the same machine.
+
+⚠️ **What none of this addresses:** every account still leaves from one IP, so per-account
+fingerprints do not make accounts unlinkable — the IP already links them. Whether many distinct
+devices on one IP is _better or worse_ than the launcher's one-device-many-accounts is reasoning,
+not something measured here.
+
+Devices already minted keep whatever they were born with; a fingerprint that changes between
+logins is its own flag, so nothing is rewritten in place. `auth device regen` is the opt-in.
 
 ## What nobody knows
 

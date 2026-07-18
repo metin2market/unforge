@@ -71,6 +71,7 @@ export {
   encodeBlackboxBody,
   LAUNCHER_BROWSER_FIELDS,
   generateDeviceProfile,
+  localeFor,
   DeviceProfile,
   DeviceIdentity,
 } from "./blackbox/index.ts";

@@ -25,11 +25,16 @@ export const Device = z.object({
 });
 export type Device = z.infer<typeof Device>;
 
-/** Mint a fresh, distinct device. There is no shared default to fall back on. */
-export function createDevice(): Device {
+/**
+ * Mint a fresh, distinct device. There is no shared default to fall back on.
+ *
+ * `region` sets the clock and languages the device reports — a machine playing Portuguese
+ * servers from a Portuguese IP should not report a London clock.
+ */
+export function createDevice(region?: string): Device {
   return {
     installationId: generateInstallationId(),
     identity: createDeviceIdentity(),
-    profile: generateDeviceProfile(),
+    profile: generateDeviceProfile(region),
   };
 }

@@ -84,10 +84,12 @@ export function describeError(err: unknown): ErrorDescription {
     return {
       kind: "code-not-allowed",
       summary:
-        "GameForge won't issue a login code for this account. Most often a code from an " +
-        "earlier launch is still outstanding — that clears on its own in ~18 minutes, and " +
-        "retrying sooner only feeds GameForge's risk scoring. If it persists, the account may " +
-        "be blocked from logging in, or — if you just registered it — its email isn't verified yet.",
+        "GameForge won't issue a login code for this account. Either a code from an earlier " +
+        "launch is still outstanding (~18 minutes), or this GameForge login is temporarily " +
+        "blocked — or, if you only just registered it, its email isn't verified yet. Don't " +
+        "retry: a block is a cooldown that every attempt restarts, so retrying is what keeps " +
+        "it going. Leave it a few hours; to tell them apart, try an account on a different " +
+        "GameForge login, once.",
     };
   }
   if (err instanceof AttestationRejectedError) {
