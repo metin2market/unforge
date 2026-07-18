@@ -39,11 +39,10 @@ requireAdministrator` (anti-cheat), so a non-elevated `spawn` fails `EACCES`. `s
 
 ## The cert
 
-The `thin/codes` cert is resolved by precedence ([`src/app/game.ts`](../src/app/game.ts)
-`resolveCertPem`): (1) the default local materials path `~/unforge-materials/cert.pem` — so running
-from source or a local binary needs **no setup**; (2) the cert **baked into the build** by
-`scripts/embed-cert.ts` (gitignored — the public repo ships none of GameForge's bytes), for a
-distributed binary on a machine without the materials.
+The `thin/codes` cert is bundled ([`src/core/gameforge-cert.pem`](../src/core/gameforge-cert.pem)),
+so nothing needs configuring. A PEM at `~/unforge-materials/cert.pem` overrides it
+([`src/app/game.ts`](../src/app/game.ts) `resolveCertPem`) — the route to take if GameForge rotates
+it. What the cert is: [protocol.md → Certificate](./protocol.md#certificate).
 
 ## Configuring the game dir
 

@@ -1,8 +1,7 @@
 // unforge config — machine-level settings that are NOT per account: the game-client dir
 // per region (genuinely machine-specific — where you installed the client). Not a secret
 // (just filesystem paths), so this is a plain JSON file — **no DPAPI seal**, unlike its sibling
-// the account store. The cert is not configured here: it's read from
-// `~/unforge-materials/cert.pem` or baked into the build (see src/app/game.ts).
+// the account store. The cert is not configured here: it's bundled (see src/core/cert.ts).
 //
 // One install, set once: `unforge config set game-dir … --region`.
 

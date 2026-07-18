@@ -1,32 +1,20 @@
-# deps / build
+# deps + the single-binary build output
 node_modules/
-dist/
-*.tsbuildinfo
+/unforge
+/unforge.exe
+.dts-review/
 
-# unforge single-binary output
-unforge
-unforge.exe
-
-# accounts store — the sealed blob holds sealed passwords/tokens; never commit one
-accounts.dat
-accounts.dat.*
-
-# secrets — never commit creds, certs, installation ids, blackboxes
-.env
-.env.*
+# secrets — credentials, private keys, and the sealed account store
+.env*
 !.env.example
 *.p12
 *.pfx
 *.pem
-cert.pem
+accounts.dat*
 
-# generated: the public cert baked in by scripts/embed-cert.ts (holds GF's bytes locally)
-src/core/embedded-cert.ts
+# …except the launcher's cert, which is bundled (src/core/cert.ts).
+!src/core/gameforge-cert.pem
 
-# captured launcher traffic — holds the account password + live tokens/blackboxes
+# captured launcher traffic + request traces — hold passwords, tokens, blackboxes
 scripts/captures/
 *.jsonl
-
-# In-process request traces (UNFORGE_TRACE) — hold secrets, never commit
-*.trace.jsonl
-trace.jsonl

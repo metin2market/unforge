@@ -41,7 +41,7 @@ export { attestDevice, buildAttestRequest } from "./spark/iovation.ts";
 export { requestLoginCode, buildCodeRequest } from "./spark/codes.ts";
 export type { SparkRequest } from "./http.ts";
 
-export { EMBEDDED_CERT_PEM } from "./embedded-cert.ts";
+export { GAMEFORGE_CERT_PEM } from "./cert.ts";
 export { generateInstallationId, isValidInstallationId } from "./installation-id.ts";
 export { DEFAULT_CLIENT_VERSION, parseClientVersion } from "./client-version.ts";
 export { accountHash, firstDigit, sha1, sha256 } from "./crypto.ts";

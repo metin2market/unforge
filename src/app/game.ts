@@ -10,7 +10,7 @@ import {
   createBlackboxSequence,
   createGameAccount,
   createSession,
-  EMBEDDED_CERT_PEM,
+  GAMEFORGE_CERT_PEM,
   listGameAccounts,
   type GameAccount,
 } from "../core/index.ts";
@@ -29,22 +29,16 @@ import {
 
 const log = getLogger(["unforge", "launch"]);
 
-// The launcher's public cert PEM: the default local materials path (running from source or
-// a local binary just works, no setup), then the cert baked into the build (for a
-// distributed binary with no materials on disk — see scripts/embed-cert.ts).
+// Overrides the bundled cert — the way to swap one in without a rebuild.
 export const DEFAULT_CERT_PATH = join(homedir(), "unforge-materials", "cert.pem");
 
-/** Resolve the cert PEM by precedence. `opts` is injectable for tests. */
+/** Resolve the cert PEM: a local file if present, else the bundled one. `opts` is injectable for tests. */
 export async function resolveCertPem(
-  opts: { defaultPath?: string; embedded?: string } = {},
+  opts: { defaultPath?: string; bundled?: string } = {},
 ): Promise<string> {
   const file = Bun.file(opts.defaultPath ?? DEFAULT_CERT_PATH);
   if (await file.exists()) return file.text();
-  const embedded = opts.embedded ?? EMBEDDED_CERT_PEM;
-  if (embedded) return embedded;
-  throw new Error(
-    `no cert available — put it at ${DEFAULT_CERT_PATH}, or bake one in (bun run embed-cert)`,
-  );
+  return opts.bundled ?? GAMEFORGE_CERT_PEM;
 }
 
 /** A game account plus which GameForge login owns it — the `account list` row. */

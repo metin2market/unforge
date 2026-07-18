@@ -102,9 +102,9 @@ grade." It wasn't. These are **dead ends, not leads** — do not re-open them:
   (plain spawn when elevated, else UAC) ([launch.md](./launch.md)).
 - ✅ **CLI + state** — `unforge auth`/`account`/`launch`/`config` over the sealed store
   ([accounts.md](./accounts.md)); a distinct device profile is minted per GameForge account
-  (`generateDeviceProfile`). The `serve` web UI drives the same store + core. The `thin/codes` cert
-  resolves from `~/unforge-materials/cert.pem` → the build-baked cert, so `account code` needs no
-  setup; only `launch`'s per-region game dir needs `config` ([launch.md](./launch.md)).
+  (`generateDeviceProfile`). The `serve` web UI drives the same store + core. The `thin/codes` cert is
+  bundled, so `account code` needs no setup; only `launch`'s per-region game dir needs `config`
+  ([launch.md](./launch.md)).
 
 ## What's next
 

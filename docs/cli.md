@@ -70,8 +70,7 @@ unforge auth logout <gf>           # confirms first (--yes to skip)
 unforge auth device show <gf>      # inspect the device: profile, installation id, identity
 unforge auth device regen <gf>     # roll a NEW device profile for this account (confirms first; --yes)
 
-# config — machine-level, set once (the cert needs no config: it's read from
-# ~/unforge-materials/cert.pem or baked into the build)
+# config — machine-level, set once (the cert needs no config: it's bundled)
 unforge config set game-dir <path>   # finds the client, fills every language it sees
 unforge config list
 
@@ -118,16 +117,16 @@ A thin **application layer** ([`src/app/`](../src/app/)) composes `core` + `stor
 `launch`, and both frontends — the CLI ([`src/cli/`](../src/cli/index.ts)) and the `serve` web UI —
 call into it, so command logic lives in one place, not duplicated per frontend.
 
-| Piece                                                        | Where                                                                           |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `core.authenticate()` — auth → login code                    | `src/core/authenticate.ts`                                                      |
-| `generateDeviceProfile()` — distinct device per GF account   | `src/core/blackbox/device.ts`                                                   |
-| `store` — sealed per-account JSON (device + game accounts)   | `src/storage/` (account-store.ts)                                               |
-| cert PEM — `~/unforge-materials/cert.pem` → build-baked      | `resolveCertPem` (`src/app/game.ts`) + `src/core/embedded-cert.ts` (gitignored) |
-| `config` — per-region game dirs                              | `src/storage/config.ts`                                                         |
-| `spawnClient()` — the Windows client spawn                   | `src/launch/`                                                                   |
-| app layer — `registerAccount` / `mintCode` / `launchAccount` | `src/app/`                                                                      |
-| CLI (`auth`/`account`/`launch`/`config`/`serve`)             | `src/cli/`                                                                      |
+| Piece                                                        | Where                                                     |
+| ------------------------------------------------------------ | --------------------------------------------------------- |
+| `core.authenticate()` — auth → login code                    | `src/core/authenticate.ts`                                |
+| `generateDeviceProfile()` — distinct device per GF account   | `src/core/blackbox/device.ts`                             |
+| `store` — sealed per-account JSON (device + game accounts)   | `src/storage/` (account-store.ts)                         |
+| cert PEM — bundled, local file overrides                     | `src/core/cert.ts` + `resolveCertPem` (`src/app/game.ts`) |
+| `config` — per-region game dirs                              | `src/storage/config.ts`                                   |
+| `spawnClient()` — the Windows client spawn                   | `src/launch/`                                             |
+| app layer — `registerAccount` / `mintCode` / `launchAccount` | `src/app/`                                                |
+| CLI (`auth`/`account`/`launch`/`config`/`serve`)             | `src/cli/`                                                |
 
 **The device primitive** — `generateDeviceProfile()` is what makes distinct-per-account real. It
 **varies** the fields that differ between real machines (GPU, screen, RAM, cores, every opaque

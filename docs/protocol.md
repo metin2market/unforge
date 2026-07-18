@@ -243,7 +243,7 @@ so we **extract** it with a **Frida** hook on that call — as GflessClient's `C
 `gfclient.exe` is 32-bit, so that recipe applies directly. `accountHash` normalises the PEM to LF
 endings + a trailing newline (or the hash won't line up) and reproduces a captured launcher's UA
 hash **exactly**. `morsisko/NosTale-Auth`'s older bundled cert gives the wrong hash — don't use it.
-The extracted PEM is a private material, never committed.
+The PEM is bundled at `src/core/gameforge-cert.pem`.
 
 ## Telemetry (optional)
 

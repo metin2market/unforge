@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Launch GameForge games without the GameForge launcher — a TypeScript library and single-binary CLI reproducing spark.gameforge.com login.",
   "license": "MIT",
+  "author": "Cyrill Brito",
   "repository": {
     "type": "git",
     "url": "https://github.com/metin2market/unforge"
@@ -19,10 +20,8 @@
   },
   "scripts": {
     "dev": "bun src/cli/index.ts",
-    "postinstall": "bun scripts/embed-cert.ts",
     "smoke": "bun scripts/smoke.ts",
-    "embed-cert": "bun scripts/embed-cert.ts",
-    "build": "bun scripts/embed-cert.ts && bun build --compile --minify --windows-hide-console --windows-title=unforge src/cli/index.ts --outfile unforge",
+    "build": "bun build --compile --minify --windows-hide-console --windows-title=unforge src/cli/index.ts --outfile unforge",
     "fmt": "oxfmt --write .",
     "test": "bun test",
     "check": "oxfmt --check . && oxlint --type-aware && tsc --noEmit"
