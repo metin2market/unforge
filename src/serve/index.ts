@@ -1,5 +1,5 @@
 // unforge serve — the local web UI entry point. A Bun HTTP server bound to
-// 127.0.0.1 that serves a small React UI and drives the library over JSON.
+// 127.0.0.1 that serves a small React UI and drives the app over JSON.
 //
 // The server draws no window of its own: it opens the UI as an app window (a
 // frameless browser window when it can) and stays alive only while it's open.
@@ -8,21 +8,16 @@
 // no daemon to manage. A second launch finds the port taken and just reopens the
 // window at the running instance.
 //
-// State is two layers: the *persisted* account set comes from the sealed store
-// (`store.list()` — never any secrets over the wire); *runtime* status (a launch
-// in flight) lives only in this process's memory for the life of the attempt.
-// Staying-alive / crash-recovery is the host process's job, not ours — so there's
-// deliberately no persisted "in game" here.
+// All state — the persisted accounts and the live launches — comes from one `App`
+// (src/app). This layer only maps HTTP onto it: no command logic, no runtime bookkeeping
+// of its own. That's what will let a long-lived host replace this entry without moving
+// any behaviour.
 
 import type { Server, ServerWebSocket } from "bun";
-import { getLogger } from "@logtape/logtape";
 import index from "./ui/index.html";
 import { openUi } from "./open-browser.ts";
-import { configureLogging, launchAccount, registerAccount } from "../app/index.ts";
-import { createHandoffServer, type HandoffServer } from "../core/handoff/index.ts";
-import { openAccountStore, openConfig, type GfAccountSummary } from "../storage/index.ts";
-
-const log = getLogger(["unforge", "serve"]);
+import { configureLogging, describeError, openApp, type App } from "../app/index.ts";
+import { errnoCode, stringField } from "../util/index.ts";
 
 const HOST = "127.0.0.1";
 const PORT = 4000;
@@ -31,16 +26,6 @@ const URL_ = `http://${HOST}:${PORT}`;
 // How long to wait after the last UI window closes before exiting — absorbs a
 // reload or a quick reopen without tearing the server down.
 const GRACE_MS = 2000;
-
-/** Transient, in-memory only: where an account is in a launch attempt right now. */
-type RuntimeStatus = "idle" | "launching" | "blocked";
-interface Runtime {
-  status: RuntimeStatus;
-  detail?: string;
-}
-
-/** What the UI sees per account: the sealed-store summary plus live runtime state. */
-type AccountView = GfAccountSummary & { runtime: Runtime };
 
 const json = (data: unknown, status = 200): Response => Response.json(data, { status });
 
@@ -53,6 +38,12 @@ export interface ServeOptions {
   verbose?: boolean;
 }
 
+/** Turn a thrown error into the UI's error shape — the same wording the CLI shows. */
+const fail = (err: unknown): Response => {
+  const { summary, kind, fields } = describeError(err);
+  return json({ error: summary, kind, fields }, 400);
+};
+
 /** Start the local web UI. Resolves once the server is listening. */
 export async function serve({
   open = false,
@@ -60,32 +51,17 @@ export async function serve({
   verbose = false,
 }: ServeOptions = {}): Promise<void> {
   await configureLogging({ verbose });
-  const store = await openAccountStore();
-  const config = await openConfig();
+  const app: App = await openApp();
 
   // Live UI windows, tracked by their heartbeat socket. Empty → nobody's looking.
-  const clients = new Set<ServerWebSocket<undefined>>();
+  const clients = new Set<ServerWebSocket>();
   let exitTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // The handoff pipe is a machine-wide singleton, so one server multiplexes every launch this
-  // process makes — created on the first launch (so `serve` still starts with a launcher open,
-  // the error surfacing per-launch instead) and shared thereafter. Left open for the process
-  // lifetime: clients ask for their login only when the user clicks Join. TODO: a longer-lived
-  // orchestrator should own this and release sessions once consumed.
-  let handoff: HandoffServer | undefined;
-  const ensureHandoff = async (): Promise<HandoffServer> =>
-    (handoff ??= await createHandoffServer({
-      onCall: (req, result) =>
-        log.debug("handoff: {method} {outcome}", {
-          method: req.method,
-          outcome: result === undefined ? "(no answer)" : "answered",
-        }),
-    }));
-
-  // Runtime status by account id — reset on restart; the store is the durable half.
-  const runtime = new Map<string, Runtime>();
-  const views = (): AccountView[] =>
-    store.list().map((a) => ({ ...a, runtime: runtime.get(a.id) ?? { status: "idle" } }));
+  // Push every app event to every open window, so the UI never polls.
+  app.subscribe((event) => {
+    const payload = JSON.stringify(event);
+    for (const ws of clients) ws.send(payload);
+  });
 
   let server: Server<undefined>;
   try {
@@ -97,82 +73,57 @@ export async function serve({
       routes: {
         "/": index,
 
+        // One call gives a fresh window everything it renders; the socket keeps it current.
+        "/api/state": { GET: () => json(app.snapshot()) },
+
         "/api/accounts": {
-          GET: () => json(views()),
-          // Add a GF account: the user brings email + password; `registerAccount`
-          // authenticates (proving the credentials), mints a stable+distinct device,
-          // discovers the game accounts, and seals the lot to disk. The password never
-          // comes back out — reads are secret-free summaries.
+          // The user brings email + password; `auth.login` authenticates (proving the
+          // credentials), mints a stable+distinct device, discovers the game accounts, and
+          // seals the lot. The password never comes back out — reads carry no secrets.
           POST: async (req) => {
-            const body = (await req.json()) as {
-              email?: string;
-              password?: string;
-            };
-            if (!body.email || !body.password)
+            const body: unknown = await req.json();
+            const email = stringField(body, "email");
+            const password = stringField(body, "password");
+            if (!email || !password) {
               return json({ error: "email and password required" }, 400);
-            try {
-              await registerAccount({
-                store,
-                email: body.email,
-                password: body.password,
-              });
-            } catch (err) {
-              return json({ error: err instanceof Error ? err.message : String(err) }, 400);
             }
-            return json(views());
+            try {
+              await app.auth.login({ email, password });
+            } catch (err) {
+              return fail(err);
+            }
+            return json(app.snapshot());
           },
         },
 
         "/api/accounts/:id": {
           DELETE: async (req) => {
-            await store.remove(req.params.id);
-            runtime.delete(req.params.id);
-            return json(views());
+            try {
+              await app.auth.logout(req.params.id);
+            } catch (err) {
+              return fail(err);
+            }
+            return json(app.snapshot());
           },
         },
 
-        // Launch: authenticate the GF account with its stored device, mint a login
-        // code, and spawn the client into its first game account (Windows-only). Needs
-        // the cert path + region game dir from config; a clear error lands in `detail`
-        // if either is missing. Secrets never leave here.
-        "/api/accounts/:id/launch": {
+        // Launch a game account: auth, mint a code, spawn the client, and answer the handoff
+        // pipe so it logs itself in. Returns as soon as the client process exists — progress
+        // after that arrives as `launch` events on the socket.
+        "/api/game-accounts/:ref/launch": {
           POST: async (req) => {
-            const acc = store.get(req.params.id);
-            if (!acc) return json({ error: "unknown account" }, 404);
-            const game = acc.gameAccounts[0];
-            if (!game) {
-              runtime.set(acc.id, { status: "blocked", detail: "no game accounts — log in again" });
-              return json(views());
-            }
-            runtime.set(acc.id, { status: "launching" });
             try {
-              const res = await launchAccount(
-                store,
-                config,
-                game.accountId,
-                undefined,
-                await ensureHandoff(),
-              );
-              runtime.set(acc.id, {
-                status: "idle",
-                detail: res.elevated
-                  ? "launched (elevated via UAC)"
-                  : `launched pid ${res.pid ?? "?"}`,
-              });
+              return json(await app.launches.start(req.params.ref));
             } catch (err) {
-              runtime.set(acc.id, {
-                status: "blocked",
-                detail: err instanceof Error ? err.message : String(err),
-              });
+              return fail(err);
             }
-            return json(views());
           },
         },
       },
 
       // The heartbeat socket lives outside the route table.
       fetch(req, srv) {
-        if (new URL(req.url).pathname === "/ws" && srv.upgrade(req)) return undefined;
+        if (new URL(req.url).pathname === "/ws" && srv.upgrade(req)) return;
         return new Response("not found", { status: 404 });
       },
 
@@ -198,7 +149,7 @@ export async function serve({
     });
   } catch (err) {
     // Port taken → an instance is already up. Reopen its window and step aside.
-    if ((err as { code?: string }).code === "EADDRINUSE") {
+    if (errnoCode(err) === "EADDRINUSE") {
       console.error(`unforge is already running → ${URL_}`);
       if (open) openUi(URL_);
       process.exit(0);

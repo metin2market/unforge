@@ -56,15 +56,15 @@ Every request carries the `sessionId` we passed in `_TNT_SESSION_ID`; every repl
  "params":{"sessionId":"dc7ecd9b-…"}}                          {"id":1,"jsonrpc":"2.0","result":"dc7ecd9b-…"}
 ```
 
-| Method (`ClientLibrary.*`)  | Params        | Result                  | Notes                                                    |
-| --------------------------- | ------------- | ----------------------- | -------------------------------------------------------- |
-| `initSession`               | `{sessionId}` | the `sessionId`, echoed | string                                                   |
-| `queryAuthorizationCode`    | `{sessionId}` | our `thin/codes` code   | **string** — the whole point                             |
-| `queryGameAccountName`      | `{sessionId}` | the game account's name | string (`displayName`; `usernames[]` is typically empty) |
-| `queryGameAccountNumericId` | `{sessionId}` | `accountNumericId`      | **JSON number, not a string**                            |
-| `isClientRunning`           | —             | `"true"`                | NosTale asks; Metin2's client does not                   |
+| Method (`ClientLibrary.*`)  | Params        | Result                   | Notes                                                    |
+| --------------------------- | ------------- | ------------------------ | -------------------------------------------------------- |
+| `initSession`               | `{sessionId}` | the `sessionId`, echoed  | string                                                   |
+| `queryAuthorizationCode`    | `{sessionId}` | our `thin/codes` code    | **string** — the whole point                             |
+| `queryGameAccountName`      | `{sessionId}` | the game account's name  | string (`displayName`; `usernames[]` is typically empty) |
+| `queryGameAccountNumericId` | `{sessionId}` | the account's numeric id | **JSON number, not a string**                            |
+| `isClientRunning`           | —             | `"true"`                 | NosTale asks; Metin2's client does not                   |
 
-`accountNumericId` comes from `/user/accounts` (see [protocol.md](./protocol.md)) — a separate field
+The numeric id comes from `/user/accounts` (see [protocol.md](./protocol.md)) — a separate field
 from the account `id`, which is a UUID. The auth flow already lists accounts on its way to
 `thin/codes`, so it costs no extra call.
 
@@ -93,11 +93,21 @@ startup step, and a served code is not permission to hang up. Whether the client
 play is **untested**; assume it might.
 
 The consequence: **there is no safe timeout.** Any cap is a guess about a human, and closing early
-fails silently and confusingly. Host the pipe for as long as the client runs — `launchAccount` leaves
-a self-hosted pipe open, so the process lives as long as the session and is ended by stopping it.
+fails silently and confusingly. So the pipe's lifetime is the _app's_, not any one launch's: the
+`App` ([design.md](./design.md)) hosts one server from the first launch until `close()`, and
+`launches.start` only registers on it.
 
-A caller that launches repeatedly, or wants the pipe to outlive any one client, should own a
-long-lived server instead and pass it in.
+That is also why `start` doesn't wait for the handoff. It returns as soon as the client process
+exists, and the rest is reported as
+[`LaunchStatus`](../src/app/launches.ts) — `awaiting-client` → `connected` (the client called
+`initSession`) → `logged-in` (it took its code), driven by the pipe traffic itself. Blocking until
+the handoff completes would mean blocking on a person, which a caller running several clients
+cannot do. Holding the process open afterwards is a frontend's choice: the CLI keeps its window
+alive and says so; the web UI doesn't need to.
+
+The status stops at `logged-in`. The client re-execs itself once for elevation, so the pid we
+spawned exits almost immediately and means nothing — there is no honest signal for "the game
+closed", and inventing one would be worse than its absence.
 
 ## Concurrency and multibox
 

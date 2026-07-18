@@ -23,6 +23,21 @@ Two sinks are always on, wired by `configureLogging`:
   `$UNFORGE_LOG_FILE`. Rotates at 5 MB, keeping the last 5 files. Written unbuffered so a one-shot
   CLI run still leaves a complete trail.
 
+## Request trace
+
+The redacted trail above is the wrong tool for diagnosing a GameForge refusal: it hides the very
+fields — blackbox, token, code, `gameId` — a diagnosis turns on. `--trace` wraps `fetch` and writes
+one JSONL line per request/response, **un-redacted**, to a per-run
+`%LOCALAPPDATA%\unforge\logs\trace-<stamp>.jsonl` (`--trace-file` or `$UNFORGE_TRACE` to choose the
+path). The CLI prints where it wrote, because the file holds live secrets and has to be scrubbed
+before it's shared. Its shape matches the captured launcher traffic, so the same tools read both.
+
+`--trace` is a **boolean**, and deliberately so: as `--trace <file>` it swallowed the subcommand —
+`--trace launch` parsed as "write to a file named `launch`, run no command" and silently opened the
+web UI instead of launching.
+
+`bun dev` passes `--verbose --trace`, so development runs are always fully recorded.
+
 unforge opens only the GameForge calls the auth flow needs — there is no telemetry sink in the tool.
 An embedding consumer can pass its own sinks to `configureLogging({ sinks })` to forward records
 elsewhere (e.g. serve's planned live-view over the heartbeat WebSocket).

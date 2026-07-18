@@ -1,9 +1,10 @@
 // Register a new GameForge account. POST /api/v2/users {email,password,locale,blackbox}.
 // The first attempt returns 409 + a `gf-challenge-id` (the PoW captcha); we solve it
 // (challenge.ts) and retry with the solved id in the header, yielding 201 + userId.
-// Login works immediately after — no email verification is needed to authenticate
-// (verified from a capture). See docs/protocol.md.
+// The new login authenticates immediately, but can't mint a play code until its email is
+// verified — `thin/codes` 403s until then. See docs/protocol.md.
 
+import { z } from "zod";
 import {
   BROWSER_USER_AGENT,
   readJson,
@@ -11,10 +12,19 @@ import {
   SPARK_ORIGIN,
   type SparkRequest,
 } from "../http.ts";
+import { UnexpectedResponseError } from "../errors.ts";
+
+// Both optional: GF reports the *outcome* in these fields, so a body saying "not created" is a
+// verdict to interpret (below), not a broken contract. Requiring them here would turn a
+// legible refusal into a shape error.
+const CreateUserResponse = z.object({
+  userCreated: z.boolean().optional(),
+  userId: z.string().optional(),
+});
 import { sendWithChallenge } from "./challenge.ts";
 import type { Credentials } from "../types.ts";
 
-export interface CreateUserOptions extends Credentials {
+export interface CreateGfAccountOptions extends Credentials {
   installationId: string;
   /** iovation "blackbox" (`tra:…`), generated natively (see blackbox/generate.ts). */
   blackbox: string;
@@ -24,12 +34,8 @@ export interface CreateUserOptions extends Credentials {
   challengeId?: string;
 }
 
-export interface CreatedUser {
-  userId: string;
-}
-
-/** Build the account-registration request (pure — no network). */
-export function buildCreateUserRequest(opts: CreateUserOptions): SparkRequest {
+/** Build the registration request (pure — no network). */
+export function buildCreateGfAccountRequest(opts: CreateGfAccountOptions): SparkRequest {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "User-Agent": BROWSER_USER_AGENT,
@@ -53,12 +59,17 @@ export function buildCreateUserRequest(opts: CreateUserOptions): SparkRequest {
   };
 }
 
-/** Register an account, solving the PoW captcha the first attempt always triggers. */
-export async function createUser(opts: CreateUserOptions): Promise<CreatedUser> {
+/** Register a GameForge account, solving the PoW captcha the first attempt always triggers. */
+export async function createGfAccount(opts: CreateGfAccountOptions): Promise<{ userId: string }> {
   const res = await sendWithChallenge(
-    (challengeId) => buildCreateUserRequest({ ...opts, challengeId }),
+    (challengeId) => buildCreateGfAccountRequest({ ...opts, challengeId }),
     opts.locale ?? "en-GB",
   );
-  const data = await readJson<{ userCreated?: boolean; userId: string }>(res);
+  const data = await readJson(res, CreateUserResponse);
+  // A 2xx is not confirmation on its own — GF reports the outcome in the body, and every
+  // later step is keyed by `userId`, so an absent one must fail here rather than downstream.
+  if (data.userCreated === false || !data.userId) {
+    throw new UnexpectedResponseError(res.status, res.statusText, JSON.stringify(data));
+  }
   return { userId: data.userId };
 }

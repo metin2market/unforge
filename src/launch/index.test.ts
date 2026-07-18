@@ -102,10 +102,9 @@ describe("findClientDir", () => {
     touch("pt-PT", exe);
     touch("en-GB", exe);
     const found = discoverGameDirs(dir);
-    expect(found.map((f) => f.region).sort((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual([
-      "en-GB",
-      "pt-PT",
-    ]);
+    expect(found.map((f) => f.region).toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual(
+      ["en-GB", "pt-PT"],
+    );
     expect(found.find((f) => f.region === "pt-PT")?.dir).toBe(join(dir, "pt-PT"));
   });
 
@@ -114,17 +113,16 @@ describe("findClientDir", () => {
     touch("en-GB", exe);
     // Pointing at a language dir scans its parent, so both languages are still filled.
     const found = discoverGameDirs(join(dir, "pt-PT"));
-    expect(found.map((f) => f.region).sort((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual([
-      "en-GB",
-      "pt-PT",
-    ]);
+    expect(found.map((f) => f.region).toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual(
+      ["en-GB", "pt-PT"],
+    );
   });
 
   test("discoverGameDirs infers no region for a non-language folder", () => {
     touch("client", exe);
     const found = discoverGameDirs(join(dir, "client"));
     expect(found).toHaveLength(1);
-    expect(found[0]!.region).toBeUndefined();
-    expect(found[0]!.dir).toBe(join(dir, "client"));
+    expect(found[0].region).toBeUndefined();
+    expect(found[0].dir).toBe(join(dir, "client"));
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildLogoutRequest, buildSessionRequest } from "../src/core/spark/sessions.ts";
-import { buildCreateUserRequest } from "../src/core/spark/create-user.ts";
+import { buildCreateGfAccountRequest } from "../src/core/spark/create-gf-account.ts";
 import { solvePow, solveSubChallenge, type PowChallenge } from "../src/core/spark/challenge.ts";
 import { buildAttestRequest } from "../src/core/spark/iovation.ts";
 import { buildCreateAccountRequest } from "../src/core/spark/create-account.ts";
@@ -103,7 +103,7 @@ d("create-user (registration) requests match the launcher", () => {
     expect(entries.length).toBeGreaterThan(0);
     for (const entry of entries) {
       const b = JSON.parse(entry.reqBody);
-      const built = buildCreateUserRequest({
+      const built = buildCreateGfAccountRequest({
         email: b.email,
         password: b.password,
         locale: b.locale,
@@ -138,8 +138,8 @@ d("PoW solver solves the launcher's real challenge", () => {
     expect(get).toBeDefined();
     expect(post).toBeDefined();
 
-    const pow = (JSON.parse(get!.respBody) as { pow: PowChallenge }).pow;
-    const captured = (JSON.parse(post!.reqBody) as { pow: { salt: string; nonce: string }[] }).pow;
+    const pow = (JSON.parse(get.respBody) as { pow: PowChallenge }).pow;
+    const captured = (JSON.parse(post.reqBody) as { pow: { salt: string; nonce: string }[] }).pow;
 
     // Every nonce the launcher submitted really does hit its target.
     for (let i = 0; i < captured.length; i++) {
@@ -167,11 +167,12 @@ describe.skipIf(!hasCaptures() || !loadCertPem())("thin/codes requests match the
     // Only `id` and `gameId` reach the request; the rest are unread placeholders.
     const account: GameAccount = {
       id: b.platformGameAccountId,
-      accountNumericId: 0,
+      numericId: 0,
       displayName: "",
       usernames: [],
       gameId,
       gameName: "metin2",
+      retired: false,
     };
     const version = header(entry, "user-agent")!.match(/^Chrome\/C(\S+) /)![1];
     return buildCodeRequest({

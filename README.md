@@ -72,9 +72,10 @@ more logins.
 - **A distinct identity per account.** A stable device fingerprint and `InstallationId` are
   generated once per account and persisted — no churn between launches, no correlation across
   accounts.
-- **Library-first.** A stateless core plus an opt-in storage layer, exported as importable
-  functions. The CLI is just the library with a face on it; `unforge serve` puts a local web UI
-  over the same store and core.
+- **Library-first, in three layers.** `unforge/core` is the reverse-engineering layer (endpoints,
+  hashes, the blackbox, the wire protocol — granular and cross-platform), `unforge/storage` is the
+  sealed account store, and `unforge` is the complete workflows over both. The CLI is just the
+  library with a face on it; `unforge serve` puts a local web UI over the same object.
 - **One binary, no runtime.** `bun build --compile` produces a single executable — callable from
   anything that can run a program. The auth half is cross-platform; only `launch` is Windows-only.
 

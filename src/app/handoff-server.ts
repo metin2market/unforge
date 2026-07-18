@@ -1,33 +1,40 @@
 // The handoff pipe server. The pipe is a machine-wide singleton, but every call carries its
 // `sessionId`, so one server answers any number of concurrent clients — that multiplexing is what
-// makes multibox possible. Windows-only. See docs/handoff.md.
+// makes multibox possible, and why a long-lived host owns one server rather than one per launch.
+//
+// It lives in the application layer, not core: the wire protocol is GameForge's design
+// (core/handoff), but binding an OS resource and holding a registry is runtime state with a
+// lifetime. Windows-only. See docs/handoff.md.
 
 import net from "node:net";
-import { PipeInUseError } from "../errors.ts";
 import {
-  answer,
+  answerRpc,
   drainJsonObjects,
   encodeResponse,
   HANDOFF_PIPE_NAME,
   pipePath,
-} from "./protocol.ts";
-import type { GameSession, RpcRequest } from "./types.ts";
+  sessionIdOf,
+  type LaunchTicket,
+  type RpcRequest,
+} from "../core/handoff/index.ts";
+import { PipeInUseError } from "../core/index.ts";
+import { isRecord, parseJson } from "../util/index.ts";
 
 export interface HandoffServerOptions {
   pipeName?: string;
-  /** Called for every request, answered or not — for logging/diagnostics. */
-  onCall?: (req: RpcRequest, result: unknown) => void;
+  /** Every request, answered or not — how a host tracks a client reaching each stage. */
+  onCall?: (call: { method: string; sessionId?: string; answered: boolean }) => void;
 }
 
 export interface HandoffServer {
   /** Pipe the clients connect to. */
   readonly path: string;
   /** Add a launch; returns the `sessionId` to spawn the client with. */
-  register(session: GameSession): string;
-  /** Drop a session once its client is in (or gave up). */
+  register(ticket: LaunchTicket): string;
+  /** Drop a launch once its client is in (or gave up). */
   release(sessionId: string): void;
-  /** Sessions still waiting for their client. */
-  readonly size: number;
+  /** Launches still registered. */
+  readonly pending: number;
   close(): Promise<void>;
 }
 
@@ -39,7 +46,7 @@ export async function createHandoffServer({
   pipeName = HANDOFF_PIPE_NAME,
   onCall,
 }: HandoffServerOptions = {}): Promise<HandoffServer> {
-  const sessions = new Map<string, GameSession>();
+  const tickets = new Map<string, LaunchTicket>();
   const path = pipePath(pipeName);
 
   const server = net.createServer((conn) => {
@@ -50,14 +57,16 @@ export async function createHandoffServer({
       const { objects, rest } = drainJsonObjects(buf);
       buf = rest;
       for (const raw of objects) {
-        let req: RpcRequest;
-        try {
-          req = JSON.parse(raw) as RpcRequest;
-        } catch {
-          continue; // not ours to interpret; ignore rather than kill the connection
-        }
-        const result = answer(req, (id) => sessions.get(id));
-        onCall?.(req, result);
+        const parsed: unknown = parseJson(raw);
+        if (!isRecord(parsed)) continue; // not ours to interpret; ignore rather than kill the connection
+        const req: RpcRequest = parsed;
+        const result = answerRpc(req, (id) => tickets.get(id));
+        // The method and session, never the result — the result is the login code.
+        onCall?.({
+          method: req.method ?? "(none)",
+          sessionId: sessionIdOf(req),
+          answered: result !== undefined,
+        });
         if (result !== undefined) conn.write(encodeResponse(req, result));
       }
     });
@@ -82,20 +91,22 @@ export async function createHandoffServer({
 
   return {
     path,
-    register(session) {
+    register(ticket) {
       const sessionId = crypto.randomUUID();
-      sessions.set(sessionId, session);
+      tickets.set(sessionId, ticket);
       return sessionId;
     },
     release(sessionId) {
-      sessions.delete(sessionId);
+      tickets.delete(sessionId);
     },
-    get size() {
-      return sessions.size;
+    get pending() {
+      return tickets.size;
     },
     close() {
-      sessions.clear();
-      return new Promise((resolve) => server.close(() => resolve()));
+      tickets.clear();
+      return new Promise((resolve) => {
+        server.close(() => resolve());
+      });
     },
   };
 }

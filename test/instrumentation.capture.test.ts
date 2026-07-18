@@ -14,7 +14,7 @@ import type { PowChallenge } from "../src/core/spark/challenge.ts";
 const captured = () => {
   const get = findRequest("pow-captcha.gameforge.com/api/challenge/", { method: "GET" });
   const post = findRequest("pow-captcha.gameforge.com/api/challenge/", { method: "POST" });
-  if (!get || !post) return undefined;
+  if (!get || !post) return;
   return {
     challenge: JSON.parse(get.respBody) as { pow: PowChallenge; instrumentation: string },
     submission: JSON.parse(post.reqBody) as {

@@ -1,0 +1,120 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "typeAware": true
+  },
+  // Setting `plugins` overwrites the base set, so the three defaults (unicorn,
+  // typescript, oxc) are restated. `react` and `import` are additions: react is
+  // off by default and is here for `rules-of-hooks` over the serve UI.
+  "plugins": ["react", "unicorn", "typescript", "oxc", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "rules": {
+    // GameForge's own env/protocol names are underscore-prefixed (`_TNT_SESSION_ID`).
+    "no-underscore-dangle": "off",
+    // Enforced in `src/`: every `unknown` from the wire or a caught throw is narrowed by
+    // reading it (src/util), never asserted into a shape the compiler is told to
+    // trust. Off for tests and scripts below, where the values are local fixtures and
+    // stubs rather than payloads. The remaining src exceptions are inline-disabled with
+    // a reason at the line.
+    "typescript/no-unsafe-type-assertion": "error",
+    // `readJson<T>` and friends declare no default for `T`, so a stripped type
+    // argument silently degrades to `unknown` rather than being a no-op.
+    "typescript/no-unnecessary-type-arguments": "off",
+
+    // The automatic JSX runtime needs no `React` import.
+    "react/react-in-jsx-scope": "off",
+    // Bun's server `fetch` handler returns nothing when it upgrades to a socket
+    // and a `Response` otherwise — mixed returns are the documented shape.
+    "typescript/consistent-return": "off",
+
+    // Import hygiene. `no-cycle` is clean today — keep it that way.
+    "import/no-cycle": "error",
+    "import/no-duplicates": "error",
+    "import/no-self-import": "error",
+    "import/no-empty-named-blocks": "error",
+
+    // A library's async surface is a contract, not an implementation detail:
+    // `sealSecret` needs `async` to unify its two return branches, and exported
+    // `Promise`-returning API stays async whether or not it awaits today.
+    "require-await": "off",
+    "unicorn/no-useless-undefined": "error",
+
+    // Style rules that fight this codebase rather than improving it. Each is off for a
+    // reason, not because it was noisy:
+    //
+    // `prefer-math-trunc` — `| 0` truncates AND wraps to int32; `Math.trunc` does not.
+    //   The blackbox generator is pinned byte-for-byte against game1, so its bit ops say
+    //   `| 0` because that is the operation being reproduced, not a slow floor().
+    // `prefer-code-point` — this is byte code, not text; see the override below.
+    // `consistent-function-scoping` — hoisting a helper out of the closure it belongs to
+    //   trades locality for a micro-optimisation that never mattered here.
+    // `no-await-in-loop` — every instance is deliberately sequential (the store's lock
+    //   retry, per-region config writes). The rule's advice, `Promise.all`, would be a bug.
+    // `no-promise-executor-return` — only fires on `new Promise(r => setTimeout(r, ms))`,
+    //   the canonical sleep. The rule guards against returning a *meaningful* value.
+    "unicorn/prefer-math-trunc": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "no-await-in-loop": "off",
+    "no-promise-executor-return": "off",
+    // A module is its barrel: reach a sibling through its `index.ts`, never its internals.
+    // Negations keep intra-module `../http.ts` and the nested `../core/handoff/index.ts` barrel legal.
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "../*/**",
+              "!../*/index.ts",
+              "!../*/*/index.ts",
+              "../../**",
+              "!../../*/index.ts",
+              "!../../*/*/index.ts"
+            ],
+            "message": "Import a sibling module through its barrel (e.g. `../core/index.ts`), not its internals."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      // Byte-oriented code, not text. These walk ASCII / 0–255 bytes (`encodeURIComponent`
+      // output, `tra:`+base64url, `& 0xff` results), where `charCodeAt` says exactly what is
+      // meant: give me this code unit as a byte. `prefer-code-point` guards against
+      // surrogate-pair bugs in *text* handling and doesn't apply — and `codePointAt`'s
+      // `number | undefined` breaks the types here for a distinction that can't arise.
+      // The blackbox encoder is pinned byte-for-byte against game1; don't churn its primitives.
+      "files": [
+        "**/blackbox/**",
+        "**/blackbox-codec.ts",
+        "**/decode-blackbox.ts",
+        "**/capture-ssl.ts"
+      ],
+      "rules": {
+        "unicorn/prefer-code-point": "off"
+      }
+    },
+    {
+      // Globs need the `**/` prefix — a bare `scripts/**` silently matches nothing.
+      "files": ["**/*.test.ts", "**/test/**", "**/scripts/**"],
+      "rules": {
+        "no-restricted-imports": "off",
+        // Tests assert over values they just constructed: `as unknown as typeof fetch` to
+        // stub the network, `as SomeError` after an `instanceof` check, and committed
+        // capture fixtures. None of it is untrusted input, which is what the rule guards.
+        "typescript/no-unsafe-type-assertion": "off",
+        // Passing `undefined` explicitly is the assertion — the narrowing helpers exist
+        // precisely to handle it, so a test that can't write it can't test it.
+        "unicorn/no-useless-undefined": "off",
+        // Bun types `expect(...).rejects.toThrow()` as void though it returns a
+        // promise; dropping the `await` would let rejections pass unasserted.
+        "typescript/await-thenable": "off"
+      }
+    }
+  ]
+}

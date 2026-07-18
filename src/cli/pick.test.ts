@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
 import type { GameAccountRow } from "../app/index.ts";
-import type { GfAccountSummary } from "../storage/index.ts";
+import type { GfAccount } from "../storage/index.ts";
 import { gameAccountOptions, gfAccountOptions } from "./pick.ts";
 
-function summary(over: Partial<GfAccountSummary> & { email: string }): GfAccountSummary {
+function summary(over: Partial<GfAccount> & { email: string }): GfAccount {
   return {
     id: over.id ?? over.email,
-    installationId: "i",
     gameAccounts: [],
     createdAt: 0,
     ...over,

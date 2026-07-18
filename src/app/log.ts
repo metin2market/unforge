@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { configure, getConsoleSink, withFilter, type LogLevel, type Sink } from "@logtape/logtape";
 import { getRotatingFileSink } from "@logtape/file";
 import { redactByField } from "@logtape/redaction";
-import { unforgeDataFile } from "../storage/paths.ts";
+import { unforgeDataFile } from "../storage";
 
 // Fields that carry secrets — never serialized raw, whichever sink they hit.
 const SECRET_FIELDS = ["password", "token", "code", "blackbox", "installationId"];

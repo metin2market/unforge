@@ -4,55 +4,65 @@
 // accounts), so we decrypt-all on load and encrypt-all on save. Design: docs/accounts.md.
 
 import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
-import type { DeviceIdentity, DeviceProfile } from "../core/index.ts";
+import { z } from "zod";
+import { shapeIssues } from "../core/index.ts";
+import { errnoCode, parseJson } from "../util/index.ts";
 import { atomicWrite } from "./atomic-write.ts";
+import { Device } from "./device.ts";
 import { unforgeDataFile } from "./paths.ts";
 import { sealSecret, unsealSecret } from "./seal.ts";
 
 /** A game account under a GF login — no secrets. */
-export interface StoredGameAccount {
-  accountId: string;
-  username: string;
+export const StoredGameAccount = z.object({
+  accountId: z.string(),
+  username: z.string(),
   /** Friendly name from `/user/accounts` (`displayName`); the everyday ref for launch. */
-  displayName?: string;
-  region: string;
-  server?: string;
-  character?: string;
-}
+  displayName: z.string().optional(),
+  region: z.string(),
+  server: z.string().optional(),
+  character: z.string().optional(),
+});
+export type StoredGameAccount = z.infer<typeof StoredGameAccount>;
 
 /** A cached bearer token from the `sessions` call. */
-export interface Session {
-  token: string;
+export const CachedToken = z.object({
+  token: z.string(),
   /** Epoch ms; past this, re-auth from the password. */
-  expiresAt: number;
-}
+  expiresAt: z.number(),
+});
+export type CachedToken = z.infer<typeof CachedToken>;
 
-/** One GF account as it lives on disk (inside the sealed blob, so secrets are plaintext here). */
-export interface StoredGfAccount {
-  id: string;
-  email: string;
+/**
+ * One GF account as it lives on disk (inside the sealed blob, so secrets are plaintext here).
+ * Secrets sit under one key so a caller can drop it and be *structurally* sure nothing leaked —
+ * a "summary" supertype can't promise that, since the secret-bearing type is assignable to it.
+ */
+export const StoredGfAccount = z.object({
+  id: z.string(),
+  email: z.string(),
   /** Short human handle for refs/pickers. Absent → a handle is derived from the email. */
-  alias?: string;
-  password: string;
-  installationId: string;
-  deviceIdentity: DeviceIdentity;
-  /** The device fingerprint (canvas/audio/WebGL/screen), persisted so each account keeps a
-   * stable, *distinct* fingerprint (no cross-account churn). Always present — minted per account. */
-  deviceProfile: DeviceProfile;
-  session?: Session;
-  gameAccounts: StoredGameAccount[];
+  alias: z.string().optional(),
+  gameAccounts: z.array(StoredGameAccount),
   /** Epoch-ms metadata for debugging which account was added/ran when. */
-  createdAt: number;
-  lastUsedAt?: number;
-}
+  createdAt: z.number(),
+  lastUsedAt: z.number().optional(),
+  secrets: z.object({
+    password: z.string(),
+    device: Device,
+    token: CachedToken.optional(),
+  }),
+});
+export type StoredGfAccount = z.infer<typeof StoredGfAccount>;
 
-/** The whole persisted set. `version` lets us evolve the shape in code (no migrations). */
-export interface StoreState {
-  version: number;
-  accounts: StoredGfAccount[];
-}
-
-export const STORE_VERSION = 1;
+/**
+ * The whole persisted set. No schema version: unforge isn't released, so a shape change means
+ * deleting the store and logging in again rather than carrying migration code forever — which
+ * only works if a stale shape is *detected*, hence the schema.
+ */
+export const StoreState = z.object({
+  accounts: z.array(StoredGfAccount),
+});
+export type StoreState = z.infer<typeof StoreState>;
 
 const LOCK_STALE_MS = 15_000;
 const LOCK_TIMEOUT_MS = 10_000;
@@ -65,11 +75,18 @@ export function defaultStorePath(): string {
 /** Read + unseal + parse the store, or an empty state if the file doesn't exist yet. */
 export async function loadState(path: string): Promise<StoreState> {
   const file = Bun.file(path);
-  if (!(await file.exists())) return { version: STORE_VERSION, accounts: [] };
-  const json = await unsealSecret(await file.bytes());
-  const state = JSON.parse(json) as StoreState;
-  // Room to upgrade older shapes here as STORE_VERSION grows.
-  return state;
+  if (!(await file.exists())) return { accounts: [] };
+  // A store that isn't the shape we wrote is corrupt, not empty — say so, naming the field,
+  // rather than silently starting fresh over someone's accounts or letting a stale shape
+  // through to fail deep in a getter (or worse, encode `undefined` into a blackbox).
+  const parsed = StoreState.safeParse(parseJson(await unsealSecret(await file.bytes())));
+  if (!parsed.success) {
+    throw new Error(
+      `unforge store at ${path} isn't in the current format (${shapeIssues(parsed.error).join("; ")}) — ` +
+        "delete it and run `unforge auth login` again",
+    );
+  }
+  return parsed.data;
 }
 
 /** Serialize + seal + write the whole store atomically. */
@@ -92,7 +109,7 @@ export async function withStoreLock<T>(path: string, fn: () => Promise<T>): Prom
       closeSync(openSync(lockPath, "wx")); // exclusive create — fails if held
       break;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      if (errnoCode(err) !== "EEXIST") throw err;
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
           unlinkSync(lockPath);
@@ -101,7 +118,8 @@ export async function withStoreLock<T>(path: string, fn: () => Promise<T>): Prom
       } catch {
         // lock vanished between calls — retry the acquire
       }
-      if (Date.now() - start > LOCK_TIMEOUT_MS) throw new Error(`store lock busy: ${lockPath}`);
+      if (Date.now() - start > LOCK_TIMEOUT_MS)
+        throw new Error(`store lock busy: ${lockPath}`, { cause: err });
       await sleep(30 + Math.random() * 40);
     }
   }

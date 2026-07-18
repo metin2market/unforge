@@ -5,18 +5,22 @@
 // account: a device that looks continuous across logins draws less attention than one
 // that appears new every time.
 
+import { z } from "zod";
+
 const VECTOR_LENGTH = 100; // game1: a0_0x1c6b63 = 0x64
 const VECTOR_STEP_MS = 1000; // game1: advance the vector if older than 0x3e8 ms
 const CLIENT_ID_CHUNKS = 3; // game1: a0_0x4c1453(0x3)
 
-export interface DeviceIdentity {
+/** Persisted per account, so it is validated on the way back in (see {@link DeviceProfile}). */
+export const DeviceIdentity = z.object({
   /** Stable per-device id (game1's "x-game"). */
-  clientId: string;
+  clientId: z.string(),
   /** The drifting vector body — VECTOR_LENGTH printable chars (game1's "x-vec"). */
-  vector: string;
+  vector: z.string(),
   /** Epoch ms stamped into the vector; advances when the vector drifts. */
-  vectorUpdatedAt: number;
-}
+  vectorUpdatedAt: z.number(),
+});
+export type DeviceIdentity = z.infer<typeof DeviceIdentity>;
 
 /** A printable ASCII char in game1's range: 0x20–0x7d (`0x20 + rand*0x5e`). */
 function randomVectorChar(rand: () => number): string {

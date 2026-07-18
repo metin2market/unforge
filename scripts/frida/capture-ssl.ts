@@ -10,7 +10,7 @@
 // gives the readable CEF/spark flow + the full host map (http_connect), Frida gives
 // the pinned-layer plaintext. Together = total visibility of one launcher login.
 
-import frida from "frida";
+import frida, { getLocalDevice } from "frida";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -28,7 +28,7 @@ const printable = (buf: Buffer) =>
     .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
     .join("");
 
-const device = await frida.getLocalDevice();
+const device = await getLocalDevice();
 console.log(`frida ${frida.version ?? ""} — device: ${device.name}`);
 
 if (dry) {

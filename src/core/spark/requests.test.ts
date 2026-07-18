@@ -17,11 +17,12 @@ const BB = "tra:AAAAExampleRawBlackbox";
 
 const account: GameAccount = {
   id: "abcd1234-0000-0000-0000-000000000000",
-  accountNumericId: 109411749,
+  numericId: 109411749,
   displayName: "test",
   usernames: ["test"],
   gameId: METIN2_GAME_ID,
   gameName: "metin2",
+  retired: false,
 };
 
 describe("buildSessionRequest", () => {

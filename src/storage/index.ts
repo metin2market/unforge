@@ -6,9 +6,19 @@
 // threat model: docs/accounts.md.
 
 export { openAccountStore } from "./account-store.ts";
-export type { AccountStore, GfAccount, GfAccountInput, GfAccountSummary } from "./account-store.ts";
+export type {
+  AccountStore,
+  AccountPatch,
+  GfAccount,
+  GfAccountWithSecrets,
+  NewGfAccount,
+} from "./account-store.ts";
+export { createDevice } from "./device.ts";
+export type { Device } from "./device.ts";
 export { defaultStorePath } from "./store-file.ts";
-export type { Session, StoredGameAccount } from "./store-file.ts";
+export type { CachedToken, StoredGameAccount } from "./store-file.ts";
+// The data folder is shared: the log file lives beside the store and the config.
+export { unforgeDataDir, unforgeDataFile } from "./paths.ts";
 export { sealSecret, unsealSecret } from "./seal.ts";
 
 export { openConfig, defaultConfigPath, CONFIG_VERSION } from "./config.ts";

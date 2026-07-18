@@ -1,9 +1,19 @@
-// unforge core — the pure, cross-platform GameForge (Spark) auth logic.
-// No CLI, no Windows launch, no I/O beyond the network calls: credentials in,
-// login code out. The `launch` (spawn the client) and CLI layers build on this.
-
-export { authenticate } from "./authenticate.ts";
-export type { AuthenticateOptions, AuthenticateResult } from "./authenticate.ts";
+// unforge core — the reverse-engineering layer: what GameForge does, reproduced.
+//
+// Endpoints, the account hash, the iovation blackbox, the handoff wire protocol. Every
+// step is granular and composable, because reproducing the flow yourself is a legitimate
+// thing to want. The rule that keeps this layer honest:
+//
+//   core knows GameForge. It does not know unforge.
+//
+// So there is no workflow, no persistence, no policy, and no default that encodes a
+// choice of ours. Anything true because *we* decided it — one device per account, cached
+// sessions, region defaults — lives in src/app.
+//
+// Each network step is a pair: a pure `build*Request` and the call that sends it. The
+// pure half is the artifact — it's what gets asserted byte-for-byte against a captured
+// launcher request (test/requests.capture.test.ts), and what a reader compares to
+// docs/protocol.md.
 
 export {
   createSession,
@@ -11,9 +21,10 @@ export {
   logout,
   buildLogoutRequest,
 } from "./spark/sessions.ts";
+export type { CreateSessionOptions } from "./spark/sessions.ts";
 // Headless registration: POST /users, solving the PoW captcha in-flow. See docs/pow-captcha.md.
-export { createUser, buildCreateUserRequest } from "./spark/create-user.ts";
-export type { CreateUserOptions, CreatedUser } from "./spark/create-user.ts";
+export { createGfAccount, buildCreateGfAccountRequest } from "./spark/create-gf-account.ts";
+export type { CreateGfAccountOptions } from "./spark/create-gf-account.ts";
 export {
   solveChallenge,
   sendWithChallenge,
@@ -37,8 +48,12 @@ export {
   METIN2_GAME_ID,
   METIN2_GAME_ENVIRONMENT_ID,
 } from "./spark/create-account.ts";
+export type { CreateGameAccountOptions, CreatedGameAccount } from "./spark/create-account.ts";
 export { attestDevice, buildAttestRequest } from "./spark/iovation.ts";
-export { requestLoginCode, buildCodeRequest } from "./spark/codes.ts";
+export type { AttestDeviceOptions } from "./spark/iovation.ts";
+export { requestLoginCode, buildCodeRequest, regionMismatch } from "./spark/codes.ts";
+export type { RequestCodeOptions } from "./spark/codes.ts";
+export { sparkFetch } from "./http.ts";
 export type { SparkRequest } from "./http.ts";
 
 export { GAMEFORGE_CERT_PEM } from "./cert.ts";
@@ -52,8 +67,12 @@ export {
   generateBlackbox,
   createBlackboxSequence,
   createDeviceIdentity,
+  driftVector,
+  encodeBlackboxBody,
   LAUNCHER_BROWSER_FIELDS,
   generateDeviceProfile,
+  DeviceProfile,
+  DeviceIdentity,
 } from "./blackbox/index.ts";
 export type {
   BlackboxRequest,
@@ -61,8 +80,6 @@ export type {
   GeneratedBlackbox,
   BlackboxSequence,
   BlackboxSequenceOptions,
-  DeviceProfile,
-  DeviceIdentity,
 } from "./blackbox/index.ts";
 
 export * from "./errors.ts";

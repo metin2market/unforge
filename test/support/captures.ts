@@ -48,8 +48,8 @@ export function loadCaptureEntries(): CaptureEntry[] {
   if (!existsSync(CAPTURES_DIR)) return (cache = []);
   const files = readdirSync(CAPTURES_DIR)
     .filter((f) => f.endsWith(".jsonl"))
-    .sort()
-    .reverse();
+    .toSorted()
+    .toReversed();
   const entries: CaptureEntry[] = [];
   for (const file of files) {
     const text = readFileSync(join(CAPTURES_DIR, file), "utf8");

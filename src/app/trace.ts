@@ -7,7 +7,22 @@
 // keep it local and gitignored. Its shape matches scripts/captures/*.jsonl, so the same tools
 // read it. Enable with `UNFORGE_TRACE=<path>` (see installFetchTraceFromEnv).
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { unforgeDataFile } from "../storage/index.ts";
+
+/**
+ * Where `--trace` writes when no path is given: one timestamped file per run, next to the log.
+ * Per-run rather than appended, so two runs never interleave into an unreadable trail, and so
+ * "the trace of the launch that failed" is a file you can point at.
+ */
+export function traceFilePath(now = new Date()): string {
+  const stamp = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "");
+  return unforgeDataFile("logs", `trace-${stamp}.jsonl`);
+}
 
 function headersToObject(h: HeadersInit | undefined): Record<string, string> {
   return Object.fromEntries(new Headers(h ?? {}));
@@ -19,10 +34,14 @@ function headersToObject(h: HeadersInit | undefined): Record<string, string> {
  * body is read, so callers still get an unconsumed body.
  */
 export function installFetchTrace(filePath: string): () => void {
+  const dir = dirname(filePath);
+  if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
   const original = globalThis.fetch;
+  // Swapping `globalThis.fetch` means claiming its type; the wrapper is ours, not a payload.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const req = input instanceof Request ? input : undefined;
-    const url = req ? req.url : String(input);
+    const url = input instanceof Request ? input.url : String(input);
     const method = init?.method ?? req?.method ?? "GET";
     const reqHeaders = headersToObject(init?.headers ?? req?.headers);
     const reqBody = typeof init?.body === "string" ? init.body : undefined;

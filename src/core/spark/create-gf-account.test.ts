@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { buildCreateUserRequest, createUser } from "./create-user.ts";
+import { buildCreateGfAccountRequest, createGfAccount } from "./create-gf-account.ts";
 
 const INSTALL = "5814f474-9054-4215-99fe-9a30baf46370";
 const BB = "tra:AAAAExampleRawBlackbox";
 const base = { email: "a@b.c", password: "pw", blackbox: BB, installationId: INSTALL };
 
-describe("buildCreateUserRequest", () => {
+describe("buildCreateGfAccountRequest", () => {
   test("POSTs /api/v2/users with both installation-id headers + Origin", () => {
-    const req = buildCreateUserRequest(base);
+    const req = buildCreateGfAccountRequest(base);
     expect(req.method).toBe("POST");
     expect(req.url).toBe("https://spark.gameforge.com/api/v2/users");
     expect(req.headers["TNT-Installation-Id"]).toBe(INSTALL);
@@ -17,20 +17,20 @@ describe("buildCreateUserRequest", () => {
 
   test("body is email-first (not blackbox-first like sessions), locale defaults en-GB", () => {
     // Key order matters — the capture test asserts byte-identity against the launcher.
-    expect(buildCreateUserRequest(base).body).toBe(
+    expect(buildCreateGfAccountRequest(base).body).toBe(
       JSON.stringify({ email: "a@b.c", password: "pw", locale: "en-GB", blackbox: BB }),
     );
   });
 
   test("gf-challenge-id header is absent on attempt 1, present on the retry", () => {
-    expect("gf-challenge-id" in buildCreateUserRequest(base).headers).toBe(false);
+    expect("gf-challenge-id" in buildCreateGfAccountRequest(base).headers).toBe(false);
     expect(
-      buildCreateUserRequest({ ...base, challengeId: "chal-1" }).headers["gf-challenge-id"],
+      buildCreateGfAccountRequest({ ...base, challengeId: "chal-1" }).headers["gf-challenge-id"],
     ).toBe("chal-1");
   });
 });
 
-describe("createUser (409 → solve PoW → retry)", () => {
+describe("createGfAccount (409 → solve PoW → retry)", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -78,7 +78,7 @@ describe("createUser (409 → solve PoW → retry)", () => {
       });
     }) as unknown as typeof fetch;
 
-    const created = await createUser({ ...base, locale: "pt-PT" });
+    const created = await createGfAccount({ ...base, locale: "pt-PT" });
     expect(created.userId).toBe("user-1");
     expect(userPosts).toBe(2); // attempt + retry
     expect(retryHadChallengeHeader).toBe(true); // retry carried the solved challenge id
@@ -97,7 +97,7 @@ describe("createUser (409 → solve PoW → retry)", () => {
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
 
-    expect((await createUser(base)).userId).toBe("user-2");
+    expect((await createGfAccount(base)).userId).toBe("user-2");
     expect(challengeCalls).toBe(0);
   });
 });

@@ -11,42 +11,50 @@
 // reports identically are a fixed constant ({@link LAUNCHER_BROWSER_FIELDS}).
 
 import { randomBytes, randomInt } from "node:crypto";
+import { z } from "zod";
 import { BROWSER_USER_AGENT } from "../http.ts";
 
-export interface DeviceProfile {
+/**
+ * A schema rather than an interface because a profile is **persisted and then re-read** to
+ * generate blackboxes. A field missing from an older store would otherwise encode as
+ * `undefined` into the fingerprint — a malformed blackbox GameForge refuses, with the refusal
+ * pointing anywhere but here.
+ */
+export const DeviceProfile = z.object({
   /** IANA zone, e.g. "Europe/London". */
-  timeZone: string;
-  osName: string;
+  timeZone: z.string(),
+  osName: z.string(),
   /** OS version string as the browser reports it, e.g. "10". */
-  osVersion: string;
-  browserName: string;
+  osVersion: z.string(),
+  browserName: z.string(),
   /** `navigator.vendor`, e.g. "Google Inc.". */
-  browserVendor: string;
-  userAgent: string;
+  browserVendor: z.string(),
+  userAgent: z.string(),
   /** `navigator.deviceMemory` (GB). */
-  deviceMemoryGb: number;
-  hardwareConcurrency: number;
+  deviceMemoryGb: z.number(),
+  hardwareConcurrency: z.number(),
   /** `navigator.languages` joined by ",", e.g. "en-US,en". */
-  languages: string;
-  screenAvailWidth: number;
-  screenAvailHeight: number;
+  languages: z.string(),
+  screenAvailWidth: z.number(),
+  screenAvailHeight: z.number(),
   /** WebGL "vendor,renderer", e.g. "Google Inc. (NVIDIA),ANGLE (NVIDIA, …)". */
-  webglVendorRenderer: string;
+  webglVendorRenderer: z.string(),
 
   // Opaque device-derived digests. game1.js computes them from live browser
   // signals (SHA-256 hex for the *Hash fields; numeric sums for the audio/canvas
   // fingerprints). For a virtual device they are fixed, plausible constants.
-  pluginsHash: string;
-  fontProbeHash: string;
-  audioContextHash: string;
-  videoCodecHash: string;
-  audioCodecHash: string;
-  mediaDeviceKindsHash: string;
-  permissionStatesHash: string;
-  webglPixelHash: string;
-  offlineAudioFingerprint: number;
-  canvasFingerprint: number;
-}
+  pluginsHash: z.string(),
+  fontProbeHash: z.string(),
+  audioContextHash: z.string(),
+  videoCodecHash: z.string(),
+  audioCodecHash: z.string(),
+  mediaDeviceKindsHash: z.string(),
+  permissionStatesHash: z.string(),
+  webglPixelHash: z.string(),
+  offlineAudioFingerprint: z.number(),
+  canvasFingerprint: z.number(),
+});
+export type DeviceProfile = z.infer<typeof DeviceProfile>;
 
 /**
  * The browser-*class* fields every genuine GF launcher (CEF/Chrome-72) reports identically —
@@ -105,7 +113,7 @@ const GPU_RENDERERS = [
  */
 export function generateDeviceProfile(): DeviceProfile {
   const hex = (): string => randomBytes(32).toString("hex");
-  const pick = <T>(a: readonly T[]): T => a[randomInt(a.length)]!;
+  const pick = <T>(a: readonly T[]): T => a[randomInt(a.length)];
   return {
     ...LAUNCHER_BROWSER_FIELDS,
     deviceMemoryGb: pick([8, 16, 32]),

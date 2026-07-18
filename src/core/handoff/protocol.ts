@@ -2,7 +2,7 @@
 // invocation, the method set, and the wire shapes. No I/O, so it's all unit-testable.
 // See docs/handoff.md.
 
-import type { GameSession, RpcRequest } from "./types.ts";
+import type { LaunchTicket, RpcRequest } from "./types.ts";
 
 /** The pipe the launcher hosts and the client connects to. One per machine. */
 export const HANDOFF_PIPE_NAME = "GameforgeClientJSONRPC";
@@ -40,7 +40,7 @@ export function drainJsonObjects(buf: string): { objects: string[]; rest: string
   let inStr = false;
   let esc = false;
   for (let i = 0; i < buf.length; i++) {
-    const c = buf[i]!;
+    const c = buf[i];
     if (inStr) {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
@@ -62,9 +62,6 @@ export function drainJsonObjects(buf: string): { objects: string[]; rest: string
   return { objects, rest: start >= 0 ? buf.slice(start) : "" };
 }
 
-/** Look up the session a call belongs to, by the `sessionId` we passed as `_TNT_SESSION_ID`. */
-export type SessionLookup = (sessionId: string) => GameSession | undefined;
-
 /** The `sessionId` a request is for, if it carries one. */
 export function sessionIdOf(req: RpcRequest): string | undefined {
   const id = req.params?.sessionId;
@@ -73,11 +70,14 @@ export function sessionIdOf(req: RpcRequest): string | undefined {
 
 /**
  * The reply to one client call, or `undefined` when we have no answer (unknown method, or a call
- * for a session we don't know) — the caller then sends nothing back.
+ * for a launch we don't know) — the caller then sends nothing back.
  *
  * `queryGameAccountNumericId` must answer with a JSON **number**; the rest are strings.
  */
-export function answer(req: RpcRequest, lookup: SessionLookup): unknown {
+export function answerRpc(
+  req: RpcRequest,
+  lookup: (sessionId: string) => LaunchTicket | undefined,
+): unknown {
   const method = (req.method ?? "").replace(/^ClientLibrary\./, "");
   if (method === "isClientRunning") return "true";
 
@@ -85,15 +85,15 @@ export function answer(req: RpcRequest, lookup: SessionLookup): unknown {
   if (sessionId === undefined) return undefined;
   if (method === "initSession") return sessionId;
 
-  const session = lookup(sessionId);
-  if (!session) return undefined;
+  const ticket = lookup(sessionId);
+  if (!ticket) return undefined;
   switch (method) {
     case "queryAuthorizationCode":
-      return session.code;
+      return ticket.code;
     case "queryGameAccountName":
-      return session.name;
+      return ticket.name;
     case "queryGameAccountNumericId":
-      return session.numericId;
+      return ticket.numericId;
     default:
       return undefined;
   }

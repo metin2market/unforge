@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { PipeInUseError } from "../errors.ts";
-import { createHandoffServer } from "./server.ts";
-import type { GameSession } from "./types.ts";
+import { PipeInUseError } from "../core/index.ts";
+import { createHandoffServer } from "./handoff-server.ts";
+import type { LaunchTicket } from "../core/handoff/index.ts";
 
 const onWindows = process.platform === "win32";
-const session: GameSession = { code: "c-1", name: "acct", numericId: 1 };
+const session: LaunchTicket = { code: "c-1", name: "acct", numericId: 1 };
 const uniquePipe = (): string => `unforge-test-${crypto.randomUUID()}`;
 
 // Named pipes are a Windows thing; the handoff is Windows-only.
@@ -31,10 +31,10 @@ test.skipIf(!onWindows)(
       const a = server.register(session);
       const b = server.register({ ...session, name: "other" });
       expect(a).not.toBe(b);
-      expect(server.size).toBe(2);
+      expect(server.pending).toBe(2);
 
       server.release(a);
-      expect(server.size).toBe(1);
+      expect(server.pending).toBe(1);
     } finally {
       await server.close();
     }

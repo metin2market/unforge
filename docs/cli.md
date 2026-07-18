@@ -98,6 +98,12 @@ Deliberate design decisions:
 - **`launch` is top-level, not duplicated under `account`.** One obvious home beats two. The
   lower-level `code` (raw login code) stays under `account` as a diagnostic — hot path bare,
   plumbing namespaced, same split as docker.
+- **`region` is per-account; `locale` is not exposed at all.** A game account's region decides both
+  which client it launches and which servers it's minted against, and is fixed when the account is
+  created ([protocol.md](./protocol.md#regions)) — so it's stored per account. The GF locale only
+  colours GF's own responses (error text, the captcha page) and never changes what's launched — so
+  it stays fixed at `en-GB` rather than earning a flag on five commands. `openApp({ locale })` is the
+  lever if a consumer ever needs another.
 - **`auth login` persists the password, unlike `gh`'s token.** GF has no refresh endpoint, so
   unattended re-auth needs the password again ([accounts.md](./accounts.md)) — the help text must
   say so honestly. `login` should also _actually authenticate_ (validate credentials + populate the
@@ -106,34 +112,41 @@ Deliberate design decisions:
   `POST /users` (solving the captcha in-flow, [pow-captcha.md](./pow-captcha.md)), then the same
   authenticate + persist as `auth login`, with the **same device** throughout so registration and its
   immediate login don't churn the fingerprint. Mirrors `login`'s options (`--email/--password/
---region/--locale`).
+--alias/--region`).
 - **`auth device` is a mild semantic stretch** (a device is identity, not strictly auth) but beats a
   third top-level noun. Keep it two words; if `device` grows, promote it to its own namespace rather
   than nesting deeper.
 
 ## How it's wired
 
-A thin **application layer** ([`src/app/`](../src/app/)) composes `core` + `store` + `config` +
-`launch`, and both frontends — the CLI ([`src/cli/`](../src/cli/index.ts)) and the `serve` web UI —
-call into it, so command logic lives in one place, not duplicated per frontend.
+The **application layer** ([`src/app/`](../src/app/)) composes `core` + `storage` + `launch`.
+`openApp()` binds them once and returns `auth`, `accounts`, and `launches`; both frontends —
+the CLI ([`src/cli/`](../src/cli/index.ts)) and the `serve` web UI — drive that one object, so
+command logic lives in one place rather than per frontend. Every CLI action is a call into it.
 
-| Piece                                                        | Where                                                     |
-| ------------------------------------------------------------ | --------------------------------------------------------- |
-| `core.authenticate()` — auth → login code                    | `src/core/authenticate.ts`                                |
-| `generateDeviceProfile()` — distinct device per GF account   | `src/core/blackbox/device.ts`                             |
-| `store` — sealed per-account JSON (device + game accounts)   | `src/storage/` (account-store.ts)                         |
-| cert PEM — bundled, local file overrides                     | `src/core/cert.ts` + `resolveCertPem` (`src/app/game.ts`) |
-| `config` — per-region game dirs                              | `src/storage/config.ts`                                   |
-| `spawnClient()` — the Windows client spawn                   | `src/launch/`                                             |
-| app layer — `registerAccount` / `mintCode` / `launchAccount` | `src/app/`                                                |
-| CLI (`auth`/`account`/`launch`/`config`/`serve`)             | `src/cli/`                                                |
+| Piece                                                          | Where                       |
+| -------------------------------------------------------------- | --------------------------- |
+| `openApp()` — the workflows (`auth` / `accounts` / `launches`) | `src/app/app.ts`            |
+| `GfSession` — an authenticated login; owns blackbox freshness  | `src/app/gf-session.ts`     |
+| ref resolution — handle / email / username / id prefix         | `src/app/refs.ts` (pure)    |
+| the handoff pipe server                                        | `src/app/handoff-server.ts` |
+| launch tracking + status                                       | `src/app/launches.ts`       |
+| cert PEM — bundled, local file overrides                       | `src/app/cert.ts`           |
+| `Device` + `createDevice()`                                    | `src/storage/device.ts`     |
+| store — sealed per-account JSON; config — per-region game dirs | `src/storage/`              |
+| `spawnClient()` — the Windows client spawn                     | `src/launch/`               |
+| CLI (`auth`/`account`/`launch`/`config`/`serve`)               | `src/cli/`                  |
 
-**The device primitive** — `generateDeviceProfile()` is what makes distinct-per-account real. It
-**varies** the fields that differ between real machines (GPU, screen, RAM, cores, every opaque
-`*Hash`/`*Fingerprint`) and **keeps constant** `userAgent`/`browserName`/schema/`automationFlags`
-(every genuine GF launcher is the same CEF/Chrome-72 build — varying those would be the tell). It's
-minted once when a GameForge account is first authenticated (`registerAccount`) and reused forever;
-`auth device regen` rolls the whole device (installation id + identity + profile) at once.
+**The device primitive** — `createDevice()` is what makes distinct-per-account real. The profile
+half **varies** the fields that differ between real machines (GPU, screen, RAM, cores, every
+opaque `*Hash`/`*Fingerprint`) and **keeps constant** `userAgent`/`browserName`/schema (every
+genuine GF launcher is the same CEF/Chrome-72 build — varying those would be the tell). Minted
+once when a GameForge account is first authenticated and reused forever; `auth device regen`
+rolls the whole device at once, since it's one thing.
+
+**`refs.ts` is pure** — it resolves over a plain account list, not a store, so a frontend can
+turn what the user typed into an account without reaching for persistence, and its rules
+(ambiguity is rejected, never guessed) are testable without any I/O.
 
 Where the project goes from here — multibox at scale and the open product questions — lives in
 [status.md → What's next](./status.md).

@@ -1,13 +1,13 @@
 # Launch — spawning the game client
 
-Once [`authenticate()`](../src/core/authenticate.ts) mints a `thin/codes` login code, `launch` spawns the game
+Once a [`GfSession`](../src/app/gf-session.ts) mints a `thin/codes` login code, `launch` spawns the game
 client from the region's game dir and hands it that code over a named pipe, so the client logs itself
 in. The wire-level detail of that exchange is [handoff.md](./handoff.md); this doc is the surrounding
 Windows machinery — finding the client, spawning it, elevation, and config.
 
 This is the **Windows-only** half of unforge; the auth half is cross-platform ([design.md](./design.md)).
 [`spawnClient`](../src/launch/index.ts) is the library API; the application layer
-([`src/app/game.ts`](../src/app/game.ts)) composes it with `authenticate()`, exposed as
+([`src/app/app.ts`](../src/app/app.ts)) composes it with the auth flow, exposed as
 `unforge launch <game-account>` and the `serve` UI's Launch button.
 
 ## The command line
@@ -41,7 +41,7 @@ requireAdministrator` (anti-cheat), so a non-elevated `spawn` fails `EACCES`. `s
 
 The `thin/codes` cert is bundled ([`src/core/gameforge-cert.pem`](../src/core/gameforge-cert.pem)),
 so nothing needs configuring. A PEM at `~/unforge-materials/cert.pem` overrides it
-([`src/app/game.ts`](../src/app/game.ts) `resolveCertPem`) — the route to take if GameForge rotates
+([`src/app/cert.ts`](../src/app/cert.ts)) — the route to take if GameForge rotates
 it. What the cert is: [protocol.md → Certificate](./protocol.md#certificate).
 
 ## Configuring the game dir
@@ -64,5 +64,5 @@ Injection is **post-login** UI automation (server/channel/character) only — it
 ## Driving the real launcher (a non-path)
 
 Letting the real launcher log in and _harvesting_ the code it hands the client is **not needed** —
-clientless `authenticate()` mints the code directly, and it wouldn't help a blocked account anyway (a
+clientless auth mints the code directly, and it wouldn't help a blocked account anyway (a
 red-barred account red-bars the launcher too). Keep it only as a manual last resort.

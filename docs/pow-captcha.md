@@ -71,7 +71,7 @@ nonce))`, prefix-compared at **bit** granularity — identical to our hex `start
   targets are always whole nibbles.
 - [`runInstrumentation`](../src/core/spark/instrumentation.ts) — evals the ops behind the shim.
 - `solveChallenge` — the fetch → solve → run → submit round-trip; `sendWithChallenge` is the
-  generic `409 → solve → retry` loop used by `createSession`, `createUser`, and `createGameAccount`.
+  generic `409 → solve → retry` loop used by `createSession`, `createGfAccount`, and `createGameAccount`.
 - `createSession` solves a login-time challenge and retries the login (~8s of CPU). A challenge that
   survives the retry still raises `CaptchaRequiredError` rather than looping.
 

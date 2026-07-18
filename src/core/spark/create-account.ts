@@ -2,6 +2,7 @@
 // POST /api/v2/users/me/accounts → the account the code flow then logs into.
 // Useful for multibox: one GF login can mint several game accounts.
 
+import { z } from "zod";
 import {
   BROWSER_USER_AGENT,
   readJson,
@@ -33,12 +34,18 @@ export interface CreateGameAccountOptions {
   challengeId?: string;
 }
 
-export interface CreatedGameAccount {
-  accountId: string;
-  displayName: string;
-  gameId: string;
-  guls: { game: string; server: string; user: string; lang: string };
-}
+export const CreatedGameAccount = z.object({
+  accountId: z.string(),
+  displayName: z.string(),
+  gameId: z.string(),
+  guls: z.object({
+    game: z.string(),
+    server: z.string(),
+    user: z.string(),
+    lang: z.string(),
+  }),
+});
+export type CreatedGameAccount = z.infer<typeof CreatedGameAccount>;
 
 /** Build the account-creation request (pure — no network). */
 export function buildCreateAccountRequest(opts: CreateGameAccountOptions): SparkRequest {
@@ -75,5 +82,5 @@ export async function createGameAccount(
     (challengeId) => buildCreateAccountRequest({ ...opts, challengeId }),
     opts.locale ?? "en-GB",
   );
-  return readJson<CreatedGameAccount>(res);
+  return readJson(res, CreatedGameAccount);
 }

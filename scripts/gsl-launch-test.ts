@@ -40,10 +40,9 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
-import { openConfig } from "../src/storage/index.ts";
+import { openAccountStore, openConfig } from "../src/storage/index.ts";
 import { findClientDir } from "../src/launch/index.ts";
-import { mintCode, resolveGameAccount } from "../src/app/index.ts";
-import { openAccountStore } from "../src/storage/index.ts";
+import { openApp, resolveGameAccount } from "../src/app/index.ts";
 
 const METIN2_GAME_UUID = "fab180a3-cd65-4b7e-bd0e-2ef77fd0c258";
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -107,7 +106,8 @@ const log = (...a: unknown[]): void => console.log(ts(), ...a);
 
 const store = await openAccountStore();
 const config = await openConfig();
-const { game } = resolveGameAccount(store, ref);
+const app = await openApp({ store, config });
+const { game } = resolveGameAccount(store.list(), ref);
 const gameDir = config.gameDir(game.region);
 if (!gameDir) {
   console.error(`no game dir for region ${game.region} — run: unforge config set game-dir <path>`);
@@ -167,9 +167,9 @@ await sleep(800); // let the OS release the pipe handles
 // `user/accounts` on its way through, so `account` carries the numeric id the client asks for —
 // no extra call, no extra login.
 log("minting thin/codes login code …");
-const { code, account } = await mintCode(store, ref);
+const { code, numericId } = await app.accounts.mintCode(ref);
 log(`code: ${code}`);
-log(`account numeric id: ${account.accountNumericId}`);
+log(`account numeric id: ${numericId}`);
 
 // Extract balanced top-level JSON objects from a raw byte stream (no fixed framing).
 function drainJsonObjects(buf: string): { objects: string[]; rest: string } {
@@ -179,7 +179,7 @@ function drainJsonObjects(buf: string): { objects: string[]; rest: string } {
   let inStr = false;
   let esc = false;
   for (let i = 0; i < buf.length; i++) {
-    const c = buf[i]!;
+    const c = buf[i];
     if (inStr) {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
@@ -221,15 +221,14 @@ function handle(req: RpcRequest): unknown {
     case "isClientRunning":
       return "true";
     case "initSession":
-      return String((req.params?.sessionId as string) ?? sessionId);
+      // Echo back whatever the client sent, falling back to the id we spawned it with.
+      return typeof req.params?.sessionId === "string" ? req.params.sessionId : sessionId;
     case "queryAuthorizationCode":
       return code;
     case "queryGameAccountName":
       return username;
     case "queryGameAccountNumericId":
-      return Bun.env.UNFORGE_NUMERIC_ID_AS_STRING === "1"
-        ? String(account.accountNumericId)
-        : account.accountNumericId;
+      return Bun.env.UNFORGE_NUMERIC_ID_AS_STRING === "1" ? String(numericId) : numericId;
     default:
       log(`  ⚠ UNHANDLED method: ${method}  params=${JSON.stringify(req.params ?? {})}`);
       return undefined;

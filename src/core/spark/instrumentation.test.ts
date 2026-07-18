@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseInstrumentationOps, runInstrumentation } from "./instrumentation.ts";
+import { ResponseShapeError } from "../errors.ts";
 
 // These mirror the shape of the ops GF actually sends (see the capture-backed diff in
 // test/instrumentation.capture.test.ts, which pins us to real CEF's results).
@@ -64,6 +65,14 @@ describe("parseInstrumentationOps", () => {
   });
 
   test("throws on a non-array rather than silently submitting nothing", () => {
-    expect(() => parseInstrumentationOps('{"nope":1}')).toThrow(TypeError);
+    expect(() => parseInstrumentationOps('{"nope":1}')).toThrow(ResponseShapeError);
+  });
+
+  // The answers are positional — one number per op, in order. Dropping an op we can't read
+  // would submit a short array and fail verification with nothing pointing at the cause, so an
+  // unreadable op has to fail the whole batch.
+  test("an unreadable op fails the batch instead of shortening the answers", () => {
+    const ops = '[{"id":"a","type":"bitwise","code":"return 1;"},{"id":"b","type":"bitwise"}]';
+    expect(() => parseInstrumentationOps(ops)).toThrow(ResponseShapeError);
   });
 });

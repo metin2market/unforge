@@ -9,7 +9,7 @@ import { cancel, confirm, isCancel, type Option, password, select, text } from "
 
 /** Can we actually run an interactive prompt? Both ends must be a TTY. */
 export function interactive(): boolean {
-  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  return process.stdin.isTTY && process.stdout.isTTY;
 }
 
 /** Unwrap a clack answer, exiting cleanly if the user cancelled. */
@@ -18,7 +18,7 @@ function unwrap<T>(value: T | symbol): T {
     cancel("Cancelled.");
     process.exit(130); // 128 + SIGINT, the shell's convention for a Ctrl-C abort
   }
-  return value as T;
+  return value;
 }
 
 /** Ask for a line of visible text. `undefined` when non-interactive. */
@@ -67,6 +67,7 @@ export async function askSelect<T extends string>(
 ): Promise<T | undefined> {
   if (!interactive()) return undefined;
   // The field names match clack's `Option`; the cast only bridges its conditional type,
-  // which doesn't reduce over a generic parameter.
-  return unwrap(await select({ message, options: options as Option<T>[] })) as T;
+  // which doesn't reduce over a generic parameter. Our own value, not a payload.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return unwrap(await select({ message, options: options as Option<T>[] }));
 }

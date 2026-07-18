@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { describeError } from "./describe-error.ts";
-import { CodeNotAllowedError, UnexpectedResponseError } from "../core/index.ts";
+import {
+  AttestationRejectedError,
+  CodeNotAllowedError,
+  InvalidCredentialsError,
+  NetworkError,
+  UnexpectedResponseError,
+} from "../core/index.ts";
 
 const spark = (status: number, body: unknown) =>
   new UnexpectedResponseError(status, "Bad Request", JSON.stringify(body));
@@ -41,8 +47,38 @@ describe("describeError", () => {
     expect(d.summary).toBe("GameForge: Something odd (HTTP 409).");
   });
 
-  test("passes typed and plain errors through by their message", () => {
-    expect(describeError(new CodeNotAllowedError()).summary).toMatch(/won't issue a login code/);
+  test("explains a refused login code, leading with the outstanding-code cause", () => {
+    const d = describeError(new CodeNotAllowedError());
+    expect(d.kind).toBe("code-not-allowed");
+    expect(d.summary).toMatch(/won't issue a login code/);
+    // The likely cause must come before the rarely-applicable email one.
+    expect(d.summary.indexOf("outstanding")).toBeLessThan(d.summary.indexOf("email"));
+  });
+
+  test("explains a refused device attestation without blaming the caller", () => {
+    const d = describeError(new AttestationRejectedError("acct-1"));
+    expect(d.kind).toBe("attestation-rejected");
+    expect(d.summary).toMatch(/device check/i);
+  });
+
+  test("classifies rejected credentials", () => {
+    expect(describeError(new InvalidCredentialsError()).kind).toBe("invalid-credentials");
+  });
+
+  // A transport failure must never read as GameForge rejecting something.
+  test("distinguishes an unreachable host from a timeout", () => {
+    const down = describeError(
+      new NetworkError("https://spark.gameforge.com", false, new Error("x")),
+    );
+    expect(down.kind).toBe("network");
+    expect(down.summary).toMatch(/internet connection/i);
+
+    const slow = describeError(new NetworkError("https://spark.gameforge.com", true));
+    expect(slow.kind).toBe("network");
+    expect(slow.summary).toMatch(/didn't respond in time/i);
+  });
+
+  test("passes plain errors through by their message", () => {
     expect(describeError(new Error("boom")).summary).toBe("boom");
     expect(describeError("just a string").summary).toBe("just a string");
   });

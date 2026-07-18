@@ -19,7 +19,7 @@ describe("parseSparkErrorBody", () => {
   test("returns undefined for a non-JSON body or one lacking the known fields", () => {
     expect(parseSparkErrorBody("<html>error</html>")).toBeUndefined();
     expect(parseSparkErrorBody(JSON.stringify({ unrelated: true }))).toBeUndefined();
-    expect(parseSparkErrorBody(undefined)).toBeUndefined();
+    expect(parseSparkErrorBody()).toBeUndefined();
   });
 });
 

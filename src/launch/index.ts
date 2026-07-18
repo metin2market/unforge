@@ -6,7 +6,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { buildInvocation, CLIENT_EXE, spawnGfClient } from "../core/handoff/index.ts";
+import { buildInvocation, CLIENT_EXE } from "../core/handoff/index.ts";
+import { errnoCode, errorMessage } from "../util/index.ts";
 
 /** A GameForge region / client language folder, e.g. "pt-PT". */
 const REGION_RE = /^[a-z]{2}-[A-Z]{2}$/;
@@ -59,7 +60,7 @@ export function findClientDir(gameDir: string, region?: string, maxDepth = 4): s
   const byRegion = region
     ? hits.find((h) => h.toLowerCase().includes(region.toLowerCase()))
     : undefined;
-  return byRegion ?? hits.sort((a, b) => a.length - b.length)[0]!;
+  return byRegion ?? hits.toSorted((a, b) => a.length - b.length)[0];
 }
 
 /** A discovered client install: the dir holding the exe, and its region if the folder names it. */
@@ -90,7 +91,7 @@ export function discoverGameDirs(gamePath: string): DiscoveredClient[] {
   } catch {
     // fall through to the recursive fallback
   }
-  for (const e of entries.sort()) {
+  for (const e of entries.toSorted()) {
     if (REGION_RE.test(e) && existsSync(join(root, e, CLIENT_EXE))) {
       found.push({ region: e, dir: join(root, e) });
     }
@@ -165,7 +166,9 @@ function spawnElevated(
   } catch (err) {
     // Thrown only when powershell itself can't be started; a declined UAC prompt is a
     // non-zero exit instead.
-    throw new Error(`could not run the elevation helper: ${(err as Error).message}`);
+    throw new Error(`could not run the elevation helper: ${errorMessage(err)}`, {
+      cause: err,
+    });
   }
   if (!r.success) {
     const detail =
@@ -176,16 +179,33 @@ function spawnElevated(
 }
 
 /**
- * Spawn the client for a session already registered on the handoff server, from a dir the caller
- * has resolved. Applies our elevation policy: a plain spawn works when unforge is already elevated;
- * otherwise it `EACCES`es and we relaunch through a UAC prompt. Windows-only.
+ * Spawn the client so it fetches its login from the handoff pipe. The pipe must already be
+ * hosted, and must stay hosted: the client connects once automatically (~2.5s, `initSession`)
+ * but only asks for the login when the **user clicks Join** — an unbounded wait.
+ *
+ * Applies our elevation policy: a plain spawn works when unforge is already elevated; otherwise
+ * it `EACCES`es (the client's manifest requires administrator) and we relaunch through a UAC
+ * prompt, which loses the pid. The client also re-execs itself once, so a returned pid is the
+ * first of two processes. Windows-only.
  */
 export async function spawnClient({ dir, sessionId }: SpawnClientOptions): Promise<SpawnResult> {
+  if (process.platform !== "win32") throw new Error(`the handoff is Windows-only (${CLIENT_EXE})`);
+  const { args, env } = buildInvocation({ sessionId });
   try {
-    return { pid: await spawnGfClient({ dir, sessionId }), elevated: false };
+    // stdio all-"ignore" is what lets `detached` actually detach: an inherited pipe would
+    // keep this process alive until the client exits.
+    const child = Bun.spawn([join(dir, CLIENT_EXE), ...args], {
+      cwd: dir,
+      env: { ...process.env, ...env },
+      detached: true,
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    child.unref();
+    return { pid: child.pid, elevated: false };
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EACCES") throw err;
-    const { args, env } = buildInvocation({ sessionId });
+    if (errnoCode(err) !== "EACCES") throw err;
     spawnElevated(join(dir, CLIENT_EXE), args, dir, env);
     return { pid: undefined, elevated: true };
   }

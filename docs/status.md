@@ -17,7 +17,7 @@ launcher**. The chain works end-to-end.
 Verified end-to-end 2026-07-17: `unclear_xyz` went straight to character creation — no login screen.
 Steps 5–6 are [handoff.md](./handoff.md).
 
-[`authenticate()`](../src/core/authenticate.ts) runs steps 1→4 and returns a login code — verified against a
+A [`GfSession`](../src/app/gf-session.ts) runs steps 1→4 and returns a login code — verified against a
 real Metin2 account (`crbgames1+gf`/`m2maccount`): minted a live code on a residential IP, over a
 generic transport, no launcher, no client cert presented.
 
@@ -26,10 +26,12 @@ generic transport, no launcher, no client cert presented.
 [protocol.md → Creating a game account](./protocol.md#creating-a-game-account).
 
 **Gotcha for new accounts: verify the email before you can play.** A headless-registered GF account
-can log in and create game accounts, but `thin/codes` (step 4) `403`s `"Not allowed to create code"`
-until its email is confirmed — see
-[protocol.md → Registering](./protocol.md#registering-a-gameforge-account). `auth register` now says
-so; `CodeNotAllowedError` covers this and a genuinely outstanding code.
+can log in and create game accounts, but `thin/codes` (step 4) `403`s until its email is confirmed.
+That same `403` is generic and has three other causes, so read it by context: on a **new** account
+it is almost always the unconfirmed email; otherwise it is a region/`accountGroup` mismatch (asking
+to play the account somewhere it doesn't exist — ours to get right, and the one cause we detect and
+attach as context), an outstanding code from an earlier launch (clears itself in ~18m), or a login
+block — [protocol.md → Code](./protocol.md#4-code--mint-the-one-time-login-code).
 
 ## The one rule that makes it work: a fresh blackbox per call
 
@@ -39,7 +41,7 @@ GF's `iovation` rejects a replayed blackbox — specifically one whose rolling v
 game1.js re-runs per request and drifts the vector ~1 char/sec; the real launcher mints a new
 blackbox each time.
 
-- [`authenticate()`](../src/core/authenticate.ts) draws each blackbox from a `BlackboxSequence`
+- A [`GfSession`](../src/app/gf-session.ts) draws each blackbox from a `BlackboxSequence`
   (`createBlackboxSequence`), which mints a separate one for `sessions`, `iovation`, and
   `thin/codes` and **forces** the vector to advance on every call after the first — back-to-back
   headless calls otherwise land inside the same 1-second drift step and would send an identical
@@ -48,7 +50,9 @@ blackbox each time.
   the flow owns freshness. See the warnings in [`iovation.ts`](../src/core/spark/iovation.ts) and
   [`blackbox.md`](./blackbox.md).
 
-This single detail was the entire "clientless is blocked" problem.
+This single detail was the entire "clientless is blocked" problem. It is necessary but **not
+sufficient** — `iovation` still refuses some correctly-advanced attestations, unexplained:
+[protocol.md → Attest device](./protocol.md#3-attest-device).
 
 ## How it was found (and why it took so long)
 
@@ -82,9 +86,9 @@ grade." It wasn't. These are **dead ends, not leads** — do not re-open them:
 
 ## What's built vs not
 
-- ✅ **Core auth** — `createSession`, `listGameAccounts`, `attestDevice`, `requestLoginCode`, and the
-  full `authenticate()` flow (`src/core/`). Pure `build*Request()` split from the network call, diffed
-  byte-for-byte against real captures.
+- ✅ **Core auth** — `createSession`, `listGameAccounts`, `attestDevice`, `requestLoginCode`
+  (`src/core/`), composed into the full flow by [`GfSession`](../src/app/gf-session.ts). Pure
+  `build*Request()` split from the network call, diffed byte-for-byte against real captures.
 - ✅ **Blackbox** — native generator + encryption, byte-verified; **fresh-per-call enforced by the flow**.
 - ✅ **Account hash** (`crypto.ts`) — reproduces the launcher's `thin/codes` UA from the GF-shared cert PEM.
 - ✅ **PoW captcha** — passes a live challenge headless, no browser. There was never a blob to reverse:
@@ -94,7 +98,7 @@ grade." It wasn't. These are **dead ends, not leads** — do not re-open them:
   challenge and retries; `auth register` (`createGfAccount`) creates accounts headless through the same
   path ([pow-captcha.md](./pow-captcha.md)). (`POST /users` is rate-limited from testing —
   **don't debug the captcha there**, see the doc.)
-- ✅ **Handoff** — `core/handoff/` spawns `metin2client.exe --gf` and serves the code on the
+- ✅ **Handoff** — `core/handoff/` holds the wire protocol; `app/handoff-server.ts` serves the code on the
   `GameforgeClientJSONRPC` pipe; the client logs itself in ([handoff.md](./handoff.md)). The protocol
   module is pure and unit-tested; the pipe server multiplexes concurrent clients by `sessionId`.
   Needs the real launcher closed (it owns the pipe) and admin.
@@ -113,10 +117,12 @@ The login-and-launch chain is complete, so the frontier is shape, not plumbing:
 - **Multibox at scale.** Per-account device + `installationId` are already distinct; the remaining
   work is driving many concurrent clients cleanly off the one machine-wide handoff pipe
   ([handoff.md → Concurrency and multibox](./handoff.md#concurrency-and-multibox)).
-- **A long-lived responder.** The client keeps asking the pipe for things _during_ play, not just at
-  login, so `launch` has to stay alive for the whole session ([design.md](./design.md)). Open
-  question: keep it a foreground window you leave open, or run it as a background service that owns
-  the pipe for every client at once?
+- **A long-lived responder — decided: no daemon.** The client keeps asking the pipe for things
+  _during_ play, not just at login, so something has to stay alive for the whole session
+  ([design.md](./design.md)). `serve` is that host: one `App` owns the pipe for every launch at
+  once, and the server lives exactly as long as its UI window — closing the window quits it, so
+  there is no background service to manage. A second launch finds the port taken and reopens the
+  window at the running instance.
 - **The primary face.** Is the **CLI** the driver with `serve` as a nicety, or the **web UI** the
   main face and the CLI for scripting? The command surface ([cli.md](./cli.md)) stands either way —
   this only decides where polish goes.
@@ -127,8 +133,10 @@ The login-and-launch chain is complete, so the frontier is shape, not plumbing:
   (solved headless, but each one adds latency) ([pow-captcha.md](./pow-captcha.md), [design.md](./design.md)).
 - **One identity per account** — persist the device identity + `installationId` per GF account; don't
   churn fingerprints, and don't mix a launcher login and a headless one on the same account.
-- **Not every `403` is retryable.** `thin/codes` `403`s with `Not allowed to create code` when a
-  previous code is still outstanding — surfaced as `CodeOutstandingError`, and **only time fixes it**
-  (~18m; see [handoff.md](./handoff.md)). Retrying that one re-authenticates for nothing and feeds
-  risk scoring. Other isolated `403`s have been seen to pass on a fresh retry. The library never
+- **Not every `403` is retryable.** `thin/codes` `403`s with `Not allowed to create code` for four
+  different reasons, all surfaced as `CodeNotAllowedError`. Only one is worth waiting out: an
+  outstanding code from an earlier launch, where **only time fixes it** (~18m; see
+  [handoff.md](./handoff.md)). A region/`accountGroup` mismatch is ours to fix and waiting never
+  helps — the error carries a `CodeNotAllowedContext` so a caller can tell that case apart instead
+  of guessing. Other isolated `403`s have been seen to pass on a fresh retry. The library never
   retries on its own; the caller decides, and should branch on the error type rather than the status.

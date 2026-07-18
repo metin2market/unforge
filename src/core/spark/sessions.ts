@@ -5,9 +5,11 @@
 // in as an input here. On 409 GameForge either demands a captcha — solved and retried
 // here (docs/pow-captcha.md) — or rejects the credentials.
 
+import { z } from "zod";
 import {
   BROWSER_USER_AGENT,
   readJson,
+  safeText,
   SPARK_BASE,
   SPARK_ORIGIN,
   sparkFetch,
@@ -18,6 +20,7 @@ import {
   InvalidCredentialsError,
   UnexpectedResponseError,
 } from "../errors.ts";
+import { stringArrayField } from "../../util/index.ts";
 import { sendWithChallenge } from "./challenge.ts";
 import type { Credentials } from "../types.ts";
 
@@ -31,9 +34,7 @@ export interface CreateSessionOptions extends Credentials {
   challengeId?: string;
 }
 
-interface SessionResponse {
-  token: string;
-}
+const SessionResponse = z.object({ token: z.string() });
 
 /** Build the `sessions` request (pure — no network). */
 export function buildSessionRequest(opts: CreateSessionOptions): SparkRequest {
@@ -76,7 +77,9 @@ export async function createSession(opts: CreateSessionOptions): Promise<string>
   if (res.status === 403)
     throw new InvalidCredentialsError("credentials rejected (HTTP 403 Forbidden)");
 
-  const data = await readJson<SessionResponse>(res);
+  // A token that isn't there would otherwise become `Bearer undefined` and fail as a 401 on
+  // the *next* endpoint, blaming the wrong call.
+  const data = await readJson(res, SessionResponse);
   return data.token;
 }
 
@@ -94,16 +97,15 @@ export function buildLogoutRequest(token: string, installationId: string): Spark
   };
 }
 
-/** Invalidate the session server-side. Best-effort; GameForge returns 202 Accepted. */
+/**
+ * Invalidate the session server-side. GameForge returns 202 Accepted with an empty body, so
+ * this checks the status directly rather than going through `readJson` — there is no JSON to
+ * read, and a 401 here (the token is already dead) means the goal is met, not that we failed.
+ */
 export async function logout(token: string, installationId: string): Promise<void> {
   const res = await sparkFetch(buildLogoutRequest(token, installationId));
-  if (res.status !== 202 && !res.ok) {
-    throw new UnexpectedResponseError(
-      res.status,
-      res.statusText,
-      await res.text().catch(() => undefined),
-    );
-  }
+  if (res.ok || res.status === 401) return;
+  throw new UnexpectedResponseError(res.status, res.statusText, await safeText(res));
 }
 
 // 409 means either a captcha gate (carried in the gf-challenge-id header) or
@@ -112,8 +114,8 @@ async function classifyConflict(res: Response): Promise<Error> {
   const challenge = res.headers.get("gf-challenge-id");
   if (challenge) return new CaptchaRequiredError(challenge.split(";")[0]);
 
-  const body = (await res.json().catch(() => ({}))) as { errorTypes?: string[] };
-  if (body.errorTypes?.includes("CREDENTIALS_INVALID")) {
+  const body: unknown = await res.json().catch(() => ({}));
+  if (stringArrayField(body, "errorTypes")?.includes("CREDENTIALS_INVALID")) {
     return new InvalidCredentialsError("credentials rejected (HTTP 409 CREDENTIALS_INVALID)");
   }
   return new UnexpectedResponseError(res.status, res.statusText, JSON.stringify(body));

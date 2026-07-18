@@ -1,43 +1,36 @@
-// unforge app — the application/orchestration layer above core + store + config +
-// launch. Thin frontends (the CLI, the web UI) call these operations so command logic
-// lives in one place, not duplicated per frontend. Everything here is Windows-capable
-// (it can touch the store/DPAPI and spawn the client) — `core` stays pure below it.
+// unforge app — the complete workflows, over core + storage.
+//
+// `openApp()` is the entry point: it binds the store, the config, and the policy once and
+// exposes `auth`, `accounts`, and `launches`. Both frontends (the CLI, the `serve` web UI)
+// drive that one object, so command logic lives here rather than per frontend — and a
+// long-lived host can re-expose it as-is, since nothing here assumes it owns the process.
 
-export {
-  registerAccount,
-  createGfAccount,
-  listGfAccounts,
-  setGfAlias,
-  deviceInfo,
-  regenDevice,
-  logoutAccount,
-  type RegisterAccountOptions,
-  type RegisterAccountResult,
-  type DeviceInfo,
-} from "./accounts.ts";
-export { openUrl } from "./open-url.ts";
-export {
-  listAllGameAccounts,
-  addGameAccount,
-  mintCode,
-  launchAccount,
-  resolveCertPem,
-  DEFAULT_CERT_PATH,
-  type GameAccountRow,
-  type AddGameAccountOptions,
-  type AddGameAccountResult,
-  type MintCodeResult,
-  type LaunchResult,
-} from "./game.ts";
-export {
-  resolveGfAccount,
-  resolveGameAccount,
-  gfAlias,
-  gfHandle,
-  DEFAULT_REGION,
-  SESSION_TTL_MS,
-  type ResolvedGameAccount,
-} from "./shared.ts";
+export { openApp, DEFAULT_LOCALE, DEFAULT_REGION } from "./app.ts";
+export type {
+  App,
+  AppEvent,
+  AppOptions,
+  AppSnapshot,
+  AccountsApi,
+  AuthApi,
+  GameAccountRow,
+  LaunchApi,
+} from "./app.ts";
+
+export type { LaunchState, LaunchStatus } from "./launches.ts";
+
+// The GameForge session — for a consumer that brings its own persistence.
+export { openGfSession, registerGfSession, resumeGfSession } from "./gf-session.ts";
+export type { GfSession, GfSessionPolicy } from "./gf-session.ts";
+
+export { createHandoffServer } from "./handoff-server.ts";
+export type { HandoffServer, HandoffServerOptions } from "./handoff-server.ts";
+
+export { resolveCertPem, DEFAULT_CERT_PATH } from "./cert.ts";
+export { binName, gfAlias, gfHandle, resolveGameAccount, resolveGfAccount } from "./refs.ts";
+export type { ResolvedGameAccount } from "./refs.ts";
+
 export { configureLogging, type ConfigureLoggingOptions } from "./log.ts";
 export { describeError, type ErrorDescription, type ErrorKind } from "./describe-error.ts";
-export { installFetchTrace, installFetchTraceFromEnv } from "./trace.ts";
+export { installFetchTrace, installFetchTraceFromEnv, traceFilePath } from "./trace.ts";
+export { openUrl } from "./open-url.ts";

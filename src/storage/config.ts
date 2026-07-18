@@ -5,15 +5,23 @@
 //
 // One install, set once: `unforge config set game-dir … --region`.
 
+import { z } from "zod";
+import { parseJson } from "../util/index.ts";
 import { atomicWrite } from "./atomic-write.ts";
 import { unforgeDataFile } from "./paths.ts";
 
-/** The persisted machine-level config. `version` lets the shape evolve in code. */
-export interface UnforgeConfig {
-  version: number;
+/**
+ * The persisted machine-level config. `version` lets the shape evolve in code, so it is read
+ * back rather than re-stamped. Both fields default: this file is hand-editable and holds only
+ * paths, so a malformed one costs a re-run of `config set`, not an account — losing a bad entry
+ * beats refusing to launch. (The account store takes the opposite line, and should.)
+ */
+export const UnforgeConfig = z.object({
+  version: z.number().default(() => CONFIG_VERSION),
   /** Region → game-client dir (holds `metin2client.exe`), e.g. `{ "pt-PT": "C:/…/pt-PT" }`. */
-  gameDirs: Record<string, string>;
-}
+  gameDirs: z.record(z.string(), z.string()).catch({}).default({}),
+});
+export type UnforgeConfig = z.infer<typeof UnforgeConfig>;
 
 export const CONFIG_VERSION = 1;
 
@@ -65,8 +73,8 @@ export async function openConfig(path: string = defaultConfigPath()): Promise<Co
   const file = Bun.file(path);
   let config = emptyConfig();
   if (await file.exists()) {
-    const parsed = (await file.json()) as Partial<UnforgeConfig>;
-    config = { ...emptyConfig(), ...parsed, gameDirs: parsed.gameDirs ?? {} };
+    // A hand-edited config shouldn't crash a launch — take what's well-formed, default the rest.
+    config = UnforgeConfig.catch(emptyConfig()).parse(parseJson(await file.text()));
   }
   return new FileConfigStore(path, config);
 }

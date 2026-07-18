@@ -8,8 +8,16 @@
 // eval (instrumentation.ts). See docs/pow-captcha.md.
 
 import { getLogger } from "@logtape/logtape";
-import { BROWSER_USER_AGENT, sparkFetch, type SparkRequest } from "../http.ts";
+import { z } from "zod";
+import {
+  BROWSER_USER_AGENT,
+  readJson,
+  sendRequest,
+  sparkFetch,
+  type SparkRequest,
+} from "../http.ts";
 import { sha256 } from "../crypto.ts";
+import { stringField } from "../../util/index.ts";
 import { UnexpectedResponseError, UnforgeError } from "../errors.ts";
 import {
   parseInstrumentationOps,
@@ -22,23 +30,26 @@ const log = getLogger(["unforge", "spark"]);
 export const POW_CAPTCHA_BASE = "https://pow-captcha.gameforge.com";
 
 /** One hashcash puzzle: least `nonce` with sha256(`salt`+nonce) prefixed by `target`. */
-export interface PowSubChallenge {
-  salt: string;
+export const PowSubChallenge = z.object({
+  salt: z.string(),
   /** Required hex prefix of the digest, e.g. "00000" (5 nibbles = 20 bits). */
-  target: string;
-}
+  target: z.string(),
+});
+export type PowSubChallenge = z.infer<typeof PowSubChallenge>;
 
-export interface PowChallenge {
+export const PowChallenge = z.object({
   /** Only "sha-256" is known; anything else throws rather than guess. */
-  algorithm: string;
-  challenges: PowSubChallenge[];
-}
+  algorithm: z.string(),
+  challenges: z.array(PowSubChallenge),
+});
+export type PowChallenge = z.infer<typeof PowChallenge>;
 
 /** The challenge body: the puzzles plus the instrumentation ops, JSON-encoded in a string. */
-export interface Challenge {
-  pow: PowChallenge;
-  instrumentation: string;
-}
+export const Challenge = z.object({
+  pow: PowChallenge,
+  instrumentation: z.string(),
+});
+export type Challenge = z.infer<typeof Challenge>;
 
 /** A solved sub-challenge: the salt echoed back with the winning nonce. */
 export interface PowSolution {
@@ -135,7 +146,7 @@ class CookieJar {
     if (this.cookies.size) {
       headers.set("Cookie", [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
     }
-    const res = await fetch(url, { ...init, headers, redirect: "manual" });
+    const res = await sendRequest(url, { ...init, headers, redirect: "manual" });
     for (const sc of res.headers.getSetCookie?.() ?? []) {
       const pair = sc.split(";", 1)[0];
       const i = pair.indexOf("=");
@@ -160,14 +171,7 @@ export async function solveChallenge(challengeId: string, locale = "en-GB"): Pro
 
   const get = buildFetchChallengeRequest(challengeId, locale);
   const gres = await jar.fetch(get.url, { method: "GET", headers: get.headers });
-  if (!gres.ok) {
-    throw new UnexpectedResponseError(
-      gres.status,
-      gres.statusText,
-      await gres.text().catch(() => undefined),
-    );
-  }
-  const challenge = (await gres.json()) as Challenge;
+  const challenge = await readJson(gres, Challenge);
   const ops: InstrumentationOp[] = parseInstrumentationOps(challenge.instrumentation);
   log.debug("captcha: fetched {pow} pow puzzles + {ops} instrumentation ops", {
     pow: challenge.pow.challenges.length,
@@ -196,8 +200,8 @@ export async function solveChallenge(challengeId: string, locale = "en-GB"): Pro
     headers: post.headers,
     body: post.body,
   });
-  const result = (await pres.json().catch(() => ({}))) as { status?: string };
-  if (result.status !== "solved") {
+  const result: unknown = await pres.json().catch(() => ({}));
+  if (stringField(result, "status") !== "solved") {
     throw new UnexpectedResponseError(pres.status, pres.statusText, JSON.stringify(result));
   }
   log.debug("captcha: challenge {id} solved", { id: challengeId });
@@ -207,11 +211,11 @@ export async function solveChallenge(challengeId: string, locale = "en-GB"): Pro
 async function challengeIdFrom(res: Response): Promise<string | undefined> {
   const header = res.headers.get("gf-challenge-id");
   if (header) return header.split(";")[0];
-  const body = (await res
+  const body: unknown = await res
     .clone()
     .json()
-    .catch(() => ({}))) as { challengeId?: string };
-  return body.challengeId;
+    .catch(() => ({}));
+  return stringField(body, "challengeId");
 }
 
 /**

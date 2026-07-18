@@ -88,6 +88,18 @@ launcher sends this just before minting a code.
 > — GF treats it as a static/replayed device. game1.js re-runs per request; so do we
 > ([blackbox.md](./blackbox.md)).
 
+A fresh vector is **necessary but not sufficient**: some attestations carrying a correctly
+advanced vector are still refused. In a traced sample, three calls got `403 {"status":"failed"}`
+whose sessions-vs-iovation blackboxes diverged by the same ~0.32 character ratio as the calls that
+passed, and one game account both passed and failed 37 seconds apart on the same installation. No
+separating rule has been found — per-account, per-installation and rate-limit explanations all
+break on the data. So a 403 here is **not** proof of a client bug: treat it as "GF declined this
+device right now", surface it as
+[`AttestationRejectedError`](../src/core/errors.ts), and retry.
+
+The endpoint answers with a verdict, so a `2xx` is not consent on its own — a body whose `status`
+isn't `"ok"` is a refusal too.
+
 ### 4. Code — mint the one-time login code
 
 ```
@@ -115,6 +127,98 @@ Headers: `Authorization: Bearer <token>`, `TNT-Installation-Id`, and the
 
 Success is `{ "code": "…" }` — the one-time login code handed to `metin2client.exe`.
 
+**`403 {"error":{"message":"Not allowed to create code"}}`** is GF's one generic refusal, and the
+body never says which cause applies. Four produce it, in rough order of how often they're the one:
+
+1. **A code is already outstanding, or the account is briefly held** — a launch that died before the
+   client consumed its code holds it for ~18 minutes. Clears on its own; retrying sooner just
+   re-authenticates for nothing and feeds GF's risk scoring. Observed to last longer than 18
+   minutes, and to correlate with **fresh devices**: minting a new installation id + fingerprint
+   and requesting a code moments later is the churn pattern GF scores against
+   ([red-bar.md](./red-bar.md)). One measured case cleared by itself after ~37 minutes.
+2. **The region is wrong** — `gameId` is sent as `<gameId>.<region>`, and a region that isn't where
+   the account lives is refused exactly like the rest. See [Regions](#regions).
+3. **The login can't play** — a block ("red bar"), an account GF has deleted or scheduled for
+   deletion (`deleted` / `preDeleted` on `user/accounts`), or one otherwise ineligible. A block is
+   **per GameForge login, not per game account, and does not clear on its own**: one measured login
+   refused on every game account — including one created seconds earlier, so no code could have
+   been outstanding — for over two days, while another login minted normally in the same minute.
+   Nothing readable detects it: `user/me` `validated`, the account's `accountGroup`/deletion flags,
+   and even `user/game/<gameId>/environment/<envId>` → `permissions: ["play","install"]` were all
+   clean for the blocked login. Only attempting a mint reveals it.
+4. **The account isn't activated** — a freshly-registered GF login whose email hasn't been
+   confirmed (`validated` is null on `user/me`; see
+   [Registering](#registering-a-gameforge-account)). New accounts only, and waiting won't fix it.
+
+[`CodeNotAllowedError`](../src/core/errors.ts) carries the two causes readable from the account
+itself — the region mismatch and the deletion stamp — so a caller can name them instead of sending
+a user to wait out a hold that was never the problem. Nothing in the response distinguishes the
+rest.
+
+**Isolating one:** mint for a sibling on the same login, then for an account on a _different_
+login. A sibling that succeeds rules out the login, token, device, and region in one call, leaving
+only per-account state; a different login that succeeds while this one keeps failing is the block
+in cause 3. Both were needed to tell those two apart — the sibling test alone reads as "transient".
+
+## Regions
+
+Four names, easy to conflate, and GameForge uses all of them. Two are full `xx-XX` tags that mean
+different things; two are bare codes from **different namespaces**:
+
+| Name              | Example | What it is                                                                                               |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| **region**        | `pt-PT` | **Where a game account lives.** Per account, fixed at creation. The client folder + the `gameId` suffix. |
+| **accountGroup**  | `pt`    | GameForge's market/community for an account. The only thing it _reports_ about where an account belongs. |
+| **client locale** | `pt`    | Which localized client build to download. Usually equals the group — but not always (below).             |
+| **locale**        | `en-GB` | GameForge's **interface** language: error text, the captcha page. Per request, unrelated to any account. |
+
+`gfLang` is a fifth field, distinct from `accountGroup` and travelling beside it — it can be `all`,
+so it is not a per-account value. Don't treat the two as spellings of one thing.
+
+### accountGroup is not a language
+
+The full set GameForge lists for Metin2:
+
+```
+es  ro  pl  en  it  fr  dk  pt  hu  cz  tr  nl  de
+```
+
+`dk` and `cz` are **country** codes — Danish is `da`, Czech is `cs`. So the group namespace and the
+client-locale namespace disagree for those two, and any code that treats a group as a language is
+wrong for 3 of 13 (`gr`→`el` behaves the same way but isn't among Metin2's groups).
+
+Established by probing the patching endpoint, which answers `200` for any locale but returns an
+empty file list for one that isn't real:
+
+```
+?locale=dk → {"entries":[],"totalSize":0}      ?locale=da → the full client
+?locale=cz → {"entries":[],"totalSize":0}      ?locale=cs → the full client
+```
+
+The other eleven map to themselves, each verified the same way.
+
+### The region rule
+
+**A game account belongs to one region, fixed when it is created, and can only be played there.**
+That one value decides both which localized client launches and which servers the account is
+minted against (`gameId` = `<gameId>.<region>`). The game config states the coupling outright:
+`coupledClientServerLocale: true`.
+
+The country half can't be synthesised from the group — GameForge ships `en` as **en-GB**, so
+doubling the subtag invents `en-EN`, which exists nowhere. unforge instead translates the group to
+its client locale and matches that against the regions **installed on this machine** (the folders
+`config set game-dir` found). A group with no installed client can't be launched anyway, so it
+falls back and the mismatch is reported rather than sent blind.
+
+Stamping precedence: explicit `--region` → installed client matching the account's group → stored →
+default. GameForge outranks the stored value deliberately: a stored region that contradicts it is a
+guess _we_ made earlier, and leaving it sticky keeps the account unlaunchable across every future
+login.
+
+**Creating** sends the group as `gfLang` + `accountGroup`. It is permanent, so it must come from the
+caller — creating in one region and recording another produces an account that exists but can never
+mint a code. The `locale` alongside it is unrelated: it only picks the captcha's language.
+
 ## Registering a GameForge account
 
 Registration creates the top-level GF login (email + password) — the multibox lever
@@ -134,7 +238,7 @@ Same headers as `sessions` (both installation-id headers, `Origin`, browser UA).
 The first attempt returns `409` + a `gf-challenge-id`; solve the PoW
 ([pow-captcha.md](./pow-captcha.md)) and **retry the same request** carrying header
 `gf-challenge-id: {id}`. Success is `201` `{ "userCreated": true, "userId": "…" }`.
-[`createUser`](../src/core/spark/create-user.ts) runs the `409 → solve → retry` loop headless
+[`createGfAccount`](../src/core/spark/create-gf-account.ts) runs the `409 → solve → retry` loop headless
 (the `instrumentation` is ops GF itself sends, not a blob to reverse — see
 [pow-captcha.md](./pow-captcha.md)).
 

@@ -3,6 +3,7 @@
 //
 // `gsid` = a client session id (any UUID) + "-" + a random 4-digit number.
 
+import { z } from "zod";
 import { readJson, SPARK_BASE, sparkFetch, type SparkRequest } from "../http.ts";
 import { accountHash } from "../crypto.ts";
 import { CodeNotAllowedError } from "../errors.ts";
@@ -28,9 +29,7 @@ export interface RequestCodeOptions {
   region: string;
 }
 
-interface CodeResponse {
-  code: string;
-}
+const CodeResponse = z.object({ code: z.string() });
 
 /**
  * Build the `thin/codes` request for an already-assembled `gsid` (pure — no
@@ -64,17 +63,43 @@ export function buildCodeRequest(opts: RequestCodeOptions & { gsid: string }): S
   };
 }
 
+/**
+ * GameForge's account groups whose code is a country rather than a language; its client locales
+ * (and so the region tags) use the language. See `CLIENT_LOCALE` in app/refs.ts for how this was
+ * established — the two tables describe the same fact from opposite directions.
+ */
+const GROUP_LOCALE: Record<string, string> = { dk: "da", cz: "cs" };
+
+/**
+ * True when the region we're about to play the account in disagrees with the group GameForge
+ * filed it under. A region is `pt-PT` and a group `pt`, so only the first subtag can be compared
+ * — after translating the groups whose code isn't the language (`dk` lives in `da-DK`). An
+ * unknown group contradicts nothing.
+ */
+export function regionMismatch(region: string, accountGroup?: string): boolean {
+  if (!accountGroup) return false;
+  const group = accountGroup.toLowerCase();
+  return region.split("-")[0].toLowerCase() !== (GROUP_LOCALE[group] ?? group);
+}
+
 /** Request the game login code for one account. */
 export async function requestLoginCode(opts: RequestCodeOptions): Promise<LoginCode> {
   const gsid = `${opts.sessionId}-${randomFourDigits()}`;
   const res = await sparkFetch(buildCodeRequest({ ...opts, gsid }));
 
-  // GF's generic "not allowed to create code" — an unverified/ineligible account or an
-  // outstanding code from an earlier, unfinished launch (see CodeNotAllowedError).
+  // GF's generic "not allowed to create code". The body names no cause, so attach what we know
+  // about the account — a wrong region or a retired account is diagnosable, the rest isn't.
   if (res.status === 403 && /not allowed to create code/i.test(await res.clone().text())) {
-    throw new CodeNotAllowedError();
+    throw new CodeNotAllowedError({
+      gameId: `${opts.account.gameId}.${opts.region}`,
+      accountGroup: opts.account.accountGroup,
+      regionMismatch: regionMismatch(opts.region, opts.account.accountGroup),
+      retired: opts.account.retired,
+    });
   }
-  const data = await readJson<CodeResponse>(res);
+  // An absent code would travel all the way to the game client over the handoff pipe and
+  // surface there as a silent login screen, in another process, with nothing logged.
+  const data = await readJson(res, CodeResponse);
   return data.code;
 }
 

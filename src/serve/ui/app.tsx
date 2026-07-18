@@ -1,63 +1,148 @@
 // The prototype UI. Plain React components + JSX — Bun bundles this .tsx (and
-// gives HMR) with zero config beyond `jsx: react-jsx` in tsconfig. Everything is
-// a thin fetch to the JSON API next door; no client-side state library needed.
+// gives HMR) with zero config beyond `jsx: react-jsx` in tsconfig.
+//
+// State comes from the app in two pieces: `GET /api/state` once on mount, then every
+// change as an `AppEvent` over the socket. Nothing polls, and the UI keeps no derived
+// state of its own — a launch's status is whatever the last event said it was.
 
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
+import { isRecord } from "../../util/index.ts";
 
-type RuntimeStatus = "idle" | "launching" | "blocked";
+interface GameAccount {
+  accountId: string;
+  username: string;
+  displayName?: string;
+  region: string;
+}
 
-interface Account {
+interface GfAccount {
   id: string;
   email: string;
-  installationId: string;
-  gameAccounts: { accountId: string; username: string; region: string }[];
+  alias?: string;
+  gameAccounts: GameAccount[];
   createdAt: number;
   lastUsedAt?: number;
   tokenExpiresAt?: number;
-  runtime: { status: RuntimeStatus; detail?: string };
 }
 
+type LaunchStatus =
+  | "authenticating"
+  | "spawning"
+  | "awaiting-client"
+  | "connected"
+  | "logged-in"
+  | "failed";
+
+interface Launch {
+  id: string;
+  accountRef: string;
+  account: GameAccount;
+  status: LaunchStatus;
+  pid?: number;
+  elevated: boolean;
+  startedAt: number;
+  error?: string;
+}
+
+interface Snapshot {
+  accounts: GfAccount[];
+  launches: Launch[];
+}
+
+type AppEvent = { type: "accounts"; accounts: GfAccount[] } | { type: "launch"; launch: Launch };
+
 /** The store knows only whether a cached session is still good — that's the persisted state. */
-function sessionLabel(acc: Account): string {
+function sessionLabel(acc: GfAccount): string {
   if (!acc.tokenExpiresAt) return "no session";
   return acc.tokenExpiresAt > Date.now() ? "session valid" : "session expired";
 }
 
-function StatusBadge({ acc }: { acc: Account }) {
-  if (acc.runtime.status === "blocked") return <span className="badge badge-redbar">Blocked</span>;
-  if (acc.runtime.status === "launching")
-    return <span className="badge badge-captcha">Launching…</span>;
-  const ready = acc.tokenExpiresAt !== undefined && acc.tokenExpiresAt > Date.now();
-  return <span className={`badge ${ready ? "badge-ingame" : ""}`}>{ready ? "Ready" : "Idle"}</span>;
+/** Launch statuses a person reads, and which badge colour carries them. */
+const STATUS_LABEL: Record<LaunchStatus, string> = {
+  authenticating: "Authenticating…",
+  spawning: "Starting client…",
+  "awaiting-client": "Waiting for client…",
+  connected: "Client connected",
+  "logged-in": "In game",
+  failed: "Failed",
+};
+
+function badgeClass(status: LaunchStatus): string {
+  if (status === "logged-in") return "badge badge-ingame";
+  if (status === "failed") return "badge badge-redbar";
+  return "badge badge-captcha";
 }
 
-function AccountRow({
-  acc,
+/** A launch is over — for the button — once it's in game or has given up. */
+const isSettled = (l: Launch): boolean => l.status === "logged-in" || l.status === "failed";
+
+function GameAccountRow({
+  game,
+  launch,
   onLaunch,
-  onRemove,
 }: {
-  acc: Account;
-  onLaunch: (a: Account) => void;
-  onRemove: (a: Account) => void;
+  game: GameAccount;
+  launch?: Launch;
+  onLaunch: (game: GameAccount) => void;
 }) {
   return (
     <div className="row">
       <div className="row-main">
-        <div className="email">{acc.email}</div>
+        <div className="email">{game.displayName ?? game.username}</div>
         <div className="server">
-          {acc.installationId.slice(0, 8)} · {sessionLabel(acc)}
+          {game.username} · {game.region}
         </div>
-        {acc.runtime.detail && <div className="detail">{acc.runtime.detail}</div>}
+        {launch?.error && <div className="detail">{launch.error}</div>}
+        {launch?.elevated && !launch.error && (
+          <div className="detail">approve the UAC prompt to continue</div>
+        )}
       </div>
-      <StatusBadge acc={acc} />
-      <button disabled={acc.runtime.status === "launching"} onClick={() => onLaunch(acc)}>
+      {launch && <span className={badgeClass(launch.status)}>{STATUS_LABEL[launch.status]}</span>}
+      <button disabled={launch !== undefined && !isSettled(launch)} onClick={() => onLaunch(game)}>
         Launch
       </button>
-      <button className="ghost" onClick={() => onRemove(acc)}>
-        Remove
-      </button>
     </div>
+  );
+}
+
+function AccountGroup({
+  acc,
+  launches,
+  onLaunch,
+  onRemove,
+}: {
+  acc: GfAccount;
+  launches: Launch[];
+  onLaunch: (game: GameAccount) => void;
+  onRemove: (acc: GfAccount) => void;
+}) {
+  return (
+    <section className="accounts">
+      <div className="row">
+        <div className="row-main">
+          <div className="email">{acc.alias ?? acc.email}</div>
+          <div className="server">
+            {acc.gameAccounts.length} game account(s) · {sessionLabel(acc)}
+          </div>
+        </div>
+        <button className="ghost" onClick={() => onRemove(acc)}>
+          Remove
+        </button>
+      </div>
+      {acc.gameAccounts.length === 0 && (
+        <div className="detail">no game accounts — create one with `unforge account create`</div>
+      )}
+      {acc.gameAccounts.map((game) => (
+        <GameAccountRow
+          key={game.accountId}
+          game={game}
+          // The newest launch for this account is the one worth showing.
+          launch={launches.findLast((l) => l.account.accountId === game.accountId)}
+          onLaunch={onLaunch}
+        />
+      ))}
+    </section>
   );
 }
 
@@ -89,39 +174,53 @@ function AddAccount({ onAdd }: { onAdd: (email: string, password: string) => voi
 }
 
 function App() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-
-  const load = () =>
-    fetch("/api/accounts")
-      .then((r) => r.json())
-      .then(setAccounts);
+  const [accounts, setAccounts] = useState<GfAccount[]>([]);
+  const [launches, setLaunches] = useState<Launch[]>([]);
 
   useEffect(() => {
-    void load();
+    void readJson<Snapshot>(fetch("/api/state")).then((s) => {
+      setAccounts(s.accounts);
+      setLaunches(s.launches);
+    });
   }, []);
 
-  // Heartbeat: while this window is open the server stays alive; when it closes
-  // the socket drops and the hidden server exits itself. This window *is* the app.
+  // The socket is both the heartbeat — while this window is open the server stays alive, and
+  // when it closes the hidden server exits itself — and how every state change arrives.
   useEffect(() => {
     const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.addEventListener("message", (e: MessageEvent<string>) => {
+      const event = parseEvent(e.data);
+      if (event?.type === "accounts") setAccounts(event.accounts);
+      else if (event?.type === "launch") setLaunches((prev) => upsert(prev, event.launch));
+    });
     return () => ws.close();
   }, []);
 
-  // Every mutation returns the fresh account list on success, or `{ error }` on failure.
+  /** Mutations answer with the whole snapshot; failures with `{ error }`. */
   async function apply(res: Response) {
-    const data = await res.json();
     if (!res.ok) {
-      alert(data?.error ?? `request failed (${res.status})`);
+      alert(await failure(res));
       return;
     }
-    setAccounts(data);
+    const snapshot = await readJson<Snapshot>(res);
+    setAccounts(snapshot.accounts);
+    setLaunches(snapshot.launches);
   }
 
-  async function launch(acc: Account) {
-    await apply(await fetch(`/api/accounts/${acc.id}/launch`, { method: "POST" }));
+  async function launch(game: GameAccount) {
+    const res = await fetch(`/api/game-accounts/${encodeURIComponent(game.accountId)}/launch`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      alert(await failure(res));
+      return;
+    }
+    // The socket will keep this current; seeding it makes the button react immediately.
+    const started = await readJson<Launch>(res);
+    setLaunches((prev) => upsert(prev, started));
   }
 
-  async function remove(acc: Account) {
+  async function remove(acc: GfAccount) {
     await apply(await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" }));
   }
 
@@ -142,15 +241,58 @@ function App() {
         <span className="sub">launcher-less GameForge login</span>
       </header>
 
-      <section className="accounts">
-        {accounts.map((acc) => (
-          <AccountRow key={acc.id} acc={acc} onLaunch={launch} onRemove={remove} />
-        ))}
-      </section>
+      {accounts.map((acc) => (
+        <AccountGroup
+          key={acc.id}
+          acc={acc}
+          launches={launches}
+          onLaunch={launch}
+          onRemove={remove}
+        />
+      ))}
 
       <AddAccount onAdd={add} />
     </main>
   );
+}
+
+/**
+ * The payloads are ours: this UI is served by the same process it talks to, and every body is
+ * an `AppSnapshot` / `AppEvent` / `LaunchState` typed at the source. So the assertion is over
+ * our own serialization, not untrusted input — one place, rather than a cast per call site.
+ */
+async function readJson<T>(res: Response | Promise<Response>): Promise<T> {
+  const data: unknown = await (await res).json();
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return data as T;
+}
+
+/**
+ * A socket frame, narrowed on the one field that decides how it's read. Unlike the fetch
+ * bodies, a frame arrives unsolicited and its `type` is the whole contract — so this reads
+ * it rather than trusting it, and ignores anything it doesn't recognise.
+ */
+function parseEvent(raw: string): AppEvent | undefined {
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) return undefined;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  if (parsed.type === "accounts" && Array.isArray(parsed.accounts)) return parsed as AppEvent;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  if (parsed.type === "launch" && isRecord(parsed.launch)) return parsed as AppEvent;
+  return undefined;
+}
+
+/** The app's error shape (`describeError`), or a bare status if the body isn't one. */
+async function failure(res: Response): Promise<string> {
+  const body = await readJson<{ error?: string }>(res);
+  return body.error ?? `request failed (${res.status})`;
+}
+
+/** Replace a launch in place, or append it — events arrive for launches we may not have yet. */
+function upsert(launches: Launch[], next: Launch): Launch[] {
+  const at = launches.findIndex((l) => l.id === next.id);
+  if (at === -1) return [...launches, next];
+  return launches.map((l) => (l.id === next.id ? next : l));
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

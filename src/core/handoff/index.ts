@@ -1,9 +1,13 @@
-// The client handoff: hand a `thin/codes` login code to the game client so it logs itself in.
-// The Windows-only half of the RE surface — kept a subpath so `unforge/core` (auth) stays portable.
+// The client handoff protocol — how the game client asks for its login over the
+// `GameforgeClientJSONRPC` pipe. Everything here is GameForge's design: the pipe name, the
+// `--gf` invocation, the method set, the wire shapes. Pure, so it's all unit-testable.
+//
+// Hosting the pipe is not here: a server binds a machine-wide OS resource and has a
+// lifetime, so it belongs to the application layer (src/app/handoff-server.ts).
 // See docs/handoff.md.
 
 export {
-  answer,
+  answerRpc,
   buildInvocation,
   CLIENT_EXE,
   drainJsonObjects,
@@ -13,9 +17,4 @@ export {
   pipePath,
   sessionIdOf,
 } from "./protocol.ts";
-export type { SessionLookup } from "./protocol.ts";
-export { createHandoffServer } from "./server.ts";
-export type { HandoffServer, HandoffServerOptions } from "./server.ts";
-export { spawnGfClient } from "./client.ts";
-export type { SpawnGfClientOptions } from "./client.ts";
-export type { GameSession, RpcRequest } from "./types.ts";
+export type { LaunchTicket, RpcRequest } from "./types.ts";

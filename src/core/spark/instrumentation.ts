@@ -9,19 +9,33 @@
 // against a real launcher capture: its own 15 ops replay through this shim to the exact
 // results CEF submitted. See docs/pow-captcha.md.
 
-/** One server-sent op. `type` is informational — GF only reads the returned number. */
-export interface InstrumentationOp {
-  id: string;
-  /** Observed: "bitwise" | "canvas" | "dom" | "prototype". Unknown types still just eval. */
-  type: string;
-  code: string;
-}
+import { z } from "zod";
+import { parseJson } from "../../util/index.ts";
+import { ResponseShapeError, shapeIssues } from "../errors.ts";
 
-/** Parse the challenge's `instrumentation` field (GF sends it JSON-encoded in a string). */
+/** One server-sent op. `type` is informational — GF only reads the returned number. */
+export const InstrumentationOp = z.object({
+  id: z.string(),
+  /** Observed: "bitwise" | "canvas" | "dom" | "prototype". Unknown types still just eval. */
+  type: z.string(),
+  code: z.string(),
+});
+export type InstrumentationOp = z.infer<typeof InstrumentationOp>;
+
+/**
+ * Parse the challenge's `instrumentation` field (GF sends it JSON-encoded in a string).
+ *
+ * All-or-nothing on purpose: the answers are **positional**, one number per op in the order
+ * sent, so dropping an op we can't read would submit a short array and fail verification with
+ * no hint as to why. A malformed op that still parses is fine — {@link runInstrumentation}
+ * answers 0 for anything that throws, which keeps the position.
+ */
 export function parseInstrumentationOps(field: string): InstrumentationOp[] {
-  const ops = JSON.parse(field) as InstrumentationOp[];
-  if (!Array.isArray(ops)) throw new TypeError("instrumentation is not an array of ops");
-  return ops;
+  const parsed = z.array(InstrumentationOp).safeParse(parseJson(field));
+  if (!parsed.success) {
+    throw new ResponseShapeError("captcha instrumentation", shapeIssues(parsed.error), field);
+  }
+  return parsed.data;
 }
 
 const pxOf = (value: string | undefined): number => parseInt(value ?? "", 10) || 0;
@@ -82,7 +96,9 @@ export function runInstrumentation(ops: InstrumentationOp[]): number[] {
       // Evaluating GF's ops *is* the mechanism: `instrumentation` is JS the server sends for the
       // client to run, so there is nothing to precompute. The code is GF's own, run against the
       // stub environment above — never attacker-chosen input.
-      // oxlint-disable-next-line typescript/no-implied-eval
+      // `new Function` is typed `(...args: any[]) => any`; the ops return numbers, and the
+      // caller checks that at the call site below.
+      // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-type-assertion
       const fn = new Function(
         "document",
         "window",
@@ -98,7 +114,7 @@ export function runInstrumentation(ops: InstrumentationOp[]): number[] {
         env.requestAnimationFrame,
         env.window,
       );
-      return (result as number) || 0;
+      return typeof result === "number" ? result || 0 : 0;
     } catch {
       return 0;
     }

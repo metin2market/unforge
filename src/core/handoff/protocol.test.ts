@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  answer,
+  answerRpc,
   buildInvocation,
   drainJsonObjects,
   encodeResponse,
@@ -8,15 +8,15 @@ import {
   pipePath,
   sessionIdOf,
 } from "./protocol.ts";
-import type { GameSession } from "./types.ts";
+import type { LaunchTicket } from "./types.ts";
 
 const SID = "dc7ecd9b-b350-4ba7-9a9b-b0d55d6c5a4d";
-const session: GameSession = {
+const session: LaunchTicket = {
   code: "ba4ed5d8-4b98-4385-b21b-5bbf87deb1a4",
   name: "unclear_xyz",
   numericId: 109411749,
 };
-const lookup = (id: string): GameSession | undefined => (id === SID ? session : undefined);
+const lookup = (id: string): LaunchTicket | undefined => (id === SID ? session : undefined);
 const call = (method: string, sessionId: string | undefined = SID) => ({
   id: 1,
   jsonrpc: "2.0",
@@ -38,46 +38,46 @@ test("pipePath is the Windows named-pipe form", () => {
   expect(pipePath()).toBe("\\\\.\\pipe\\GameforgeClientJSONRPC");
 });
 
-describe("answer", () => {
+describe("answerRpc", () => {
   test("initSession echoes the sessionId back, without needing a registered session", () => {
-    expect(answer(call("ClientLibrary.initSession"), () => undefined)).toBe(SID);
+    expect(answerRpc(call("ClientLibrary.initSession"), () => undefined)).toBe(SID);
   });
 
   test("queryAuthorizationCode returns the login code", () => {
-    expect(answer(call("ClientLibrary.queryAuthorizationCode"), lookup)).toBe(session.code);
+    expect(answerRpc(call("ClientLibrary.queryAuthorizationCode"), lookup)).toBe(session.code);
   });
 
   test("queryGameAccountName returns the account name", () => {
-    expect(answer(call("ClientLibrary.queryGameAccountName"), lookup)).toBe("unclear_xyz");
+    expect(answerRpc(call("ClientLibrary.queryGameAccountName"), lookup)).toBe("unclear_xyz");
   });
 
   test("queryGameAccountNumericId returns a number, not a string", () => {
-    const result = answer(call("ClientLibrary.queryGameAccountNumericId"), lookup);
+    const result = answerRpc(call("ClientLibrary.queryGameAccountNumericId"), lookup);
     expect(result).toBe(109411749);
     expect(typeof result).toBe("number");
   });
 
   test("isClientRunning needs no session", () => {
-    expect(answer({ method: "ClientLibrary.isClientRunning" }, () => undefined)).toBe("true");
+    expect(answerRpc({ method: "ClientLibrary.isClientRunning" }, () => undefined)).toBe("true");
   });
 
   test("accepts methods without the ClientLibrary prefix", () => {
-    expect(answer(call("queryAuthorizationCode"), lookup)).toBe(session.code);
+    expect(answerRpc(call("queryAuthorizationCode"), lookup)).toBe(session.code);
   });
 
   test("multiplexes: each session gets its own answers", () => {
-    const other: GameSession = { code: "other-code", name: "other", numericId: 42 };
-    const two = (id: string): GameSession | undefined =>
+    const other: LaunchTicket = { code: "other-code", name: "other", numericId: 42 };
+    const two = (id: string): LaunchTicket | undefined =>
       id === SID ? session : id === "sid-2" ? other : undefined;
-    expect(answer(call("queryAuthorizationCode", SID), two)).toBe(session.code);
-    expect(answer(call("queryAuthorizationCode", "sid-2"), two)).toBe("other-code");
+    expect(answerRpc(call("queryAuthorizationCode", SID), two)).toBe(session.code);
+    expect(answerRpc(call("queryAuthorizationCode", "sid-2"), two)).toBe("other-code");
   });
 
-  test("no answer for an unknown session, an unknown method, or a missing sessionId", () => {
-    expect(answer(call("queryAuthorizationCode", "nope"), lookup)).toBeUndefined();
-    expect(answer(call("ClientLibrary.whoKnows"), lookup)).toBeUndefined();
+  test("no answerRpc for an unknown session, an unknown method, or a missing sessionId", () => {
+    expect(answerRpc(call("queryAuthorizationCode", "nope"), lookup)).toBeUndefined();
+    expect(answerRpc(call("ClientLibrary.whoKnows"), lookup)).toBeUndefined();
     expect(
-      answer({ id: 1, method: "ClientLibrary.queryAuthorizationCode" }, lookup),
+      answerRpc({ id: 1, method: "ClientLibrary.queryAuthorizationCode" }, lookup),
     ).toBeUndefined();
   });
 });
@@ -120,6 +120,6 @@ describe("drainJsonObjects", () => {
     const raw = `{"id":1,"jsonrpc":"2.0","method":"ClientLibrary.initSession","params":{"sessionId":"${SID}"}}`;
     const { objects } = drainJsonObjects(raw);
     expect(objects).toHaveLength(1);
-    expect(sessionIdOf(JSON.parse(objects[0]!))).toBe(SID);
+    expect(sessionIdOf(JSON.parse(objects[0]))).toBe(SID);
   });
 });

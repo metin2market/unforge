@@ -24,21 +24,25 @@ A GameForge login can hold **several game accounts** (the multibox lever — see
 [protocol.md → Creating a game account](./protocol.md#creating-a-game-account)), so
 the store is a collection of **GF accounts**, each owning its game accounts:
 
-| Field            | Secret?              | Notes                                                                                                                               |
-| ---------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `email`          | no                   | the GF login                                                                                                                        |
-| `alias`          | no                   | optional short handle for refs/pickers (`auth alias`); absent → derived from the email (local part or `+tag`)                       |
-| `password`       | **yes**              | only used at the `sessions` step; the durable re-mint key                                                                           |
-| `installationId` | sensitive            | **distinct per GF account**, stable forever ([protocol.md → Installation id](./protocol.md#installation-id))                        |
-| `deviceIdentity` | sensitive            | `{clientId, vector, vectorUpdatedAt}`; the vector **drifts**, so it is written back after every auth ([blackbox.md](./blackbox.md)) |
-| `deviceProfile`  | sensitive            | the fingerprint (canvas/audio/WebGL/screen hashes); **distinct per GF account**, stable. Absent → a freshly generated distinct one  |
-| `session`        | sensitive, revocable | cached `{token, expiresAt}` — reuse to avoid re-auth churn                                                                          |
-| game accounts    | no                   | `{accountId, username, region, server?, character?}` per child                                                                      |
+| Field              | Secret?              | Notes                                                                                                                                               |
+| ------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `email`            | no                   | the GF login                                                                                                                                        |
+| `alias`            | no                   | optional short handle for refs/pickers (`auth alias`); absent → derived from the email (local part or `+tag`)                                       |
+| `gameAccounts`     | no                   | `{accountId, username, region, server?, character?}` per child                                                                                      |
+| `secrets.password` | **yes**              | only used at the `sessions` step; the durable re-mint key                                                                                           |
+| `secrets.device`   | sensitive            | the whole [`Device`](../src/storage/device.ts) — installation id + identity + profile. Its vector **drifts**, so it is written back after every run |
+| `secrets.token`    | sensitive, revocable | cached `{token, expiresAt}` — reuse to avoid re-auth churn                                                                                          |
 
-**Never share `installationId`, `deviceIdentity`, or `deviceProfile` across GF accounts.**
-Identical identity across logins is a fingerprinting red flag — one **stable, distinct**
-identity per GF account (generated once, reused every run) is the whole point of the
-stable-distinct-identity rule in [design.md](./design.md).
+**Secrets are nested under one key, not mixed in.** `list()` returns accounts without it and
+`get()` with it, so dropping the key is all it takes to make a value safe to hand to a UI or
+a log — a "summary" supertype can't promise that, because the secret-bearing type would be
+assignable to it.
+
+**Never share a `Device` across GF accounts.** Identical identity across logins is a
+fingerprinting red flag — one **stable, distinct** device per GF account (generated once,
+reused every run) is the whole point of the stable-distinct-identity rule in
+[design.md](./design.md). The store mints a distinct one when a caller adds an account
+without a device; there is no shared default to fall back on.
 
 ## Secrets: store the password, cache the token
 
@@ -163,54 +167,72 @@ src/storage/
   paths.ts         — the <localAppData>\unforge data folder + unforgeDataFile(...)
   atomic-write.ts  — safe whole-file write (temp + rename), shared with config
   seal.ts          — sealSecret / unsealSecret (DPAPI Protect/Unprotect over stdin)
-  store-file.ts    — load/save the sealed blob, the lock; the store shape
+  device.ts        — the Device type + createDevice()
+  store-file.ts    — load/save the sealed blob, the lock, shape validation; the store shape
   account-store.ts — the AccountStore over an in-memory copy
   config.ts        — the plain (unsealed) machine config, a sibling module
 ```
 
-The sealed blob is one versioned JSON document (timestamps are epoch-ms metadata for
+The sealed blob is one JSON document (timestamps are epoch-ms metadata for
 debugging which account was added/ran when):
 
 ```ts
 interface StoreState {
-  version: number; // evolve the shape in code — no migrations
   accounts: StoredGfAccount[];
 }
 
 interface StoredGfAccount {
   id: string;
   email: string;
-  password: string; // plaintext inside the sealed blob
-  installationId: string; // distinct per GF account
-  deviceIdentity: DeviceIdentity; // {clientId, vector, vectorUpdatedAt}
-  session?: Session; // {token, expiresAt} — cached, absent until first auth
+  alias?: string;
   gameAccounts: StoredGameAccount[]; // {accountId, username, region, server?, character?}
   createdAt: number;
   lastUsedAt?: number;
+  secrets: {
+    password: string; // plaintext inside the sealed blob
+    device: Device; // {installationId, identity, profile} — distinct per GF account
+    token?: CachedToken; // {token, expiresAt} — cached, absent until first auth
+  };
 }
 ```
 
-Reads are **sync** (served from the in-memory copy); writes are **async** because
-sealing shells out to DPAPI. `list` returns secret-free summaries; `get` returns the one
-account (with secrets) a login needs:
+**No schema version, and no migrations.** unforge isn't released, so a shape change means
+deleting `accounts.dat` and logging in again — cheaper than carrying upgrade code and a test
+for every past shape. Revisit when there are stores we don't own.
+
+That only works if a stale store is _detected_, so `loadState` validates the whole blob against
+the `StoreState` schema and refuses a mismatch, naming the field. Being our own data is not a
+reason to trust it: a store written before a field existed reads fine field-by-field and then
+encodes `undefined` into a blackbox, which GameForge refuses for reasons that point nowhere near
+here. The config takes the opposite line deliberately — it holds only paths, so a malformed entry
+is dropped and defaulted rather than blocking a launch.
+
+Reads are **sync** (served from the in-memory copy); writes are **async** because sealing
+shells out to DPAPI:
 
 ```ts
 interface AccountStore {
-  list(): GfAccountSummary[]; // no secrets
-  get(id: string): GfAccount | undefined; // includes secrets
-  put(account: GfAccountInput): Promise<string>; // returns id
+  list(): GfAccount[]; // no secrets
+  get(id: string): GfAccountWithSecrets | undefined; // secrets guaranteed present
+  add(account: NewGfAccount): Promise<GfAccountWithSecrets>;
+  save(id: string, patch: AccountPatch): Promise<void>; // merge under the lock
   remove(id: string): Promise<void>;
-  recordAuth(id: string, r: { session: Session; deviceIdentity: DeviceIdentity }): Promise<void>;
-  touch(id: string, now?: number): Promise<void>; // stamp last_used_at
+  onChange(fn: (accounts: GfAccount[]) => void): () => void;
 }
 ```
 
-Composition stays one-directional: a consumer `get`s a GF account, calls
-`core.authenticate()`, then `recordAuth` writes the fresh token **and** drifted
-`deviceIdentity` back together (one write of the whole blob, so a crash can't desync
-identity from session). `core` imports nothing from `store`; the store knows nothing
-about who calls it, so a stateful application layer sits above it as thin frontends
-(CLI, UI) over the same interface.
+**One write path, not a family of mutators.** `save` takes a patch of exactly the mutable
+fields (an absent key is left alone; `alias: null` clears). The read-modify-write under the
+lock is the store's job either way, so a single merging write says what special-purpose
+setters said, without also offering a whole-account `put` that bypasses them.
+
+`onChange` exists for the long-lived host: it must push store changes to connected clients,
+and polling a sealed file is not an option.
+
+Composition stays one-directional: a consumer `get`s a GF account, runs a
+[`GfSession`](../src/app/gf-session.ts), then `save`s the drifted device **and** the fresh
+token together (one write of the whole blob, so a crash can't desync them). `core` imports
+nothing from `storage`; the store knows nothing about who calls it.
 
 ## Gitignore
 

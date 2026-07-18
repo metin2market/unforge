@@ -96,7 +96,7 @@ game1.js re-runs per request and drifts the vector ~1 char/sec; the launcher min
 new blackbox each time. Reusing one blackbox for `sessions`+`iovation` was the
 long-standing "iovation is walled" bug.
 
-So `authenticate()` ([authenticate.ts](../src/core/authenticate.ts)) mints **three** raw blackboxes per
+So a [`GfSession`](../src/app/gf-session.ts) mints **three** raw blackboxes per
 login — one each for `sessions`, `iovation`, `thin/codes` — threading the same device
 identity through, and **forcing the vector to advance** (`forceVectorDrift`) on the calls
 after `sessions`, because back-to-back headless calls otherwise land in the same 1-second

@@ -13,5 +13,7 @@ export {
   type BlackboxSequence,
   type BlackboxSequenceOptions,
 } from "./generate.ts";
-export { LAUNCHER_BROWSER_FIELDS, generateDeviceProfile, type DeviceProfile } from "./device.ts";
-export { createDeviceIdentity, driftVector, type DeviceIdentity } from "./identity.ts";
+// `DeviceProfile` / `DeviceIdentity` are each a schema *and* the type it infers — both are
+// persisted, so the schema is what validates them back off disk.
+export { LAUNCHER_BROWSER_FIELDS, generateDeviceProfile, DeviceProfile } from "./device.ts";
+export { createDeviceIdentity, driftVector, DeviceIdentity } from "./identity.ts";
