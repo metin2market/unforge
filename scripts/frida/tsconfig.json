@@ -1,0 +1,10 @@
+// This tool is its own Bun project (the native `frida` binding is not an unforge dep), so it
+// sits outside the root tsconfig's project and needs its own to resolve types.
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["."],
+  "exclude": []
+}

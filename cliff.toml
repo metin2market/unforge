@@ -1,0 +1,37 @@
+# git-cliff — turn Conventional Commit messages into grouped release notes.
+# Used by the release workflow (`bunx git-cliff --latest`). Docs: https://git-cliff.org/docs/configuration
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/metin2market/unforge/commit/{{ commit.id }}))\
+{% endfor %}
+{% endfor %}
+{% if version %}\n**Full changelog:** https://github.com/metin2market/unforge/commits/{{ version }}{% endif %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+# Keep non-conventional commits too (grouped under "Other") so nothing silently vanishes.
+filter_unconventional = false
+split_commits = false
+commit_parsers = [
+  { message = "^Merge", skip = true },
+  { message = "^release", skip = true },
+  { message = "^feat", group = "<!-- 0 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+  { message = "^perf", group = "<!-- 2 -->⚡ Performance" },
+  { message = "^refactor", group = "<!-- 3 -->🚜 Refactor" },
+  { message = "^docs?", group = "<!-- 4 -->📚 Documentation" },
+  { message = "^test", group = "<!-- 5 -->🧪 Testing" },
+  { message = "^(chore|ci|build)", group = "<!-- 6 -->⚙️ Miscellaneous" },
+  { message = ".*", group = "<!-- 7 -->📝 Other" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"

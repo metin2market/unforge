@@ -1,0 +1,78 @@
+name: Release
+
+# One-click releases. Pick a semver bump from the Actions tab (or `gh workflow run`);
+# CI computes the next version, builds the single-binary CLI on Windows, tags, and
+# publishes a GitHub Release with auto-generated notes and the binary attached.
+#
+# package.json is the version source of truth: the bump is committed back to the
+# default branch so tags and the package version never drift.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check (fmt, lint, types)
+        run: bun run check
+
+      - name: Bump version
+        id: v
+        shell: bash
+        run: echo "version=$(bun pm version ${{ inputs.bump }} --no-git-tag-version)" >> "$GITHUB_OUTPUT"
+
+      # Reads the public GF cert from the UNFORGE_CERT_PEM secret so the binary works
+      # out of the box. If the secret is unset the build still succeeds — the binary
+      # just needs `unforge config set cert-path` on first run.
+      - name: Build binary
+        env:
+          UNFORGE_CERT_PEM: ${{ secrets.UNFORGE_CERT_PEM }}
+        run: bun run build
+
+      - name: Tag and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: ${{ steps.v.outputs.version }}"
+          git tag "${{ steps.v.outputs.version }}"
+          git push origin HEAD
+          git push origin "${{ steps.v.outputs.version }}"
+
+      # Grouped changelog from Conventional Commit messages (feat:/fix:/…) since the last tag.
+      - name: Generate release notes
+        shell: bash
+        run: bunx git-cliff --latest --strip header -o RELEASE_NOTES.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.v.outputs.version }}
+          name: ${{ steps.v.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          files: unforge.exe

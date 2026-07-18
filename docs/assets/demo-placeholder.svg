@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 405" width="720" height="405" role="img" aria-label="Demo video coming soon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBF3E1"/>
+      <stop offset="1" stop-color="#F3E9D2"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="717" height="402" rx="16" fill="url(#bg)" stroke="#A97D3A" stroke-width="1.5"/>
+  <rect x="14" y="14" width="692" height="377" rx="9" fill="none" stroke="#A97D3A" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="3 6"/>
+  <circle cx="360" cy="176" r="46" fill="#AF2B25"/>
+  <path d="M347 154 L347 198 L385 176 Z" fill="#F8F1E3"/>
+  <text x="360" y="266" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="600" fill="#2F2115">Demo coming soon</text>
+  <text x="360" y="298" text-anchor="middle" font-family="ui-monospace, 'JetBrains Mono', monospace" font-size="14" letter-spacing="2" fill="#8A6D3A">UNFORGE — LAUNCHER-LESS LOGIN, START TO IN-GAME</text>
+</svg>

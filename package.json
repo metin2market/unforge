@@ -1,0 +1,51 @@
+{
+  "name": "unforge",
+  "version": "0.0.0",
+  "description": "Launch GameForge games without the GameForge launcher — a TypeScript library and single-binary CLI reproducing spark.gameforge.com login.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/metin2market/unforge"
+  },
+  "bin": {
+    "unforge": "src/cli/index.ts"
+  },
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./core/handoff": "./src/core/handoff/index.ts"
+  },
+  "scripts": {
+    "dev": "bun src/cli/index.ts",
+    "postinstall": "bun scripts/embed-cert.ts",
+    "smoke": "bun scripts/smoke.ts",
+    "embed-cert": "bun scripts/embed-cert.ts",
+    "build": "bun scripts/embed-cert.ts && bun build --compile --minify --windows-hide-console --windows-title=unforge src/cli/index.ts --outfile unforge",
+    "fmt": "oxfmt --write .",
+    "test": "bun test",
+    "check": "oxfmt --check . && oxlint --type-aware && tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "@logtape/file": "^2.2.4",
+    "@logtape/logtape": "^2.2.4",
+    "@logtape/redaction": "^2.2.4",
+    "commander": "^15.0.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "oxfmt": "^0.57.0",
+    "oxlint": "^1.72.0",
+    "oxlint-tsgolint": "^0.24.0",
+    "typescript": "^6.0.2"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

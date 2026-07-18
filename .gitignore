@@ -1,0 +1,32 @@
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# unforge single-binary output
+unforge
+unforge.exe
+
+# accounts store — the sealed blob holds sealed passwords/tokens; never commit one
+accounts.dat
+accounts.dat.*
+
+# secrets — never commit creds, certs, installation ids, blackboxes
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+cert.pem
+
+# generated: the public cert baked in by scripts/embed-cert.ts (holds GF's bytes locally)
+src/core/embedded-cert.ts
+
+# captured launcher traffic — holds the account password + live tokens/blackboxes
+scripts/captures/
+*.jsonl
+
+# In-process request traces (UNFORGE_TRACE) — hold secrets, never commit
+*.trace.jsonl
+trace.jsonl

@@ -1,0 +1,16 @@
+{
+  "name": "unforge-frida-tools",
+  "private": true,
+  "description": "Frida SSL tap for gfclient.exe — isolated from the unforge lib deps (native frida binding). See docs/capturing-traffic.md.",
+  "type": "module",
+  "scripts": {
+    "capture": "bun capture-ssl.ts",
+    "dry": "bun capture-ssl.ts --dry"
+  },
+  "dependencies": {
+    "frida": "^16.7.19"
+  },
+  "trustedDependencies": [
+    "frida"
+  ]
+}

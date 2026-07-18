@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7 7" width="112" height="112" role="img" aria-label="unforge">
+  <rect width="7" height="7" rx="1.2" fill="#F8F1E3"/>
+  <g shape-rendering="crispEdges" fill="#2F2115">
+    <rect x="1" y="1" width="1.02" height="1.02"/>
+    <rect x="3" y="1" width="1.02" height="1.02"/>
+    <rect x="4" y="1" width="1.02" height="1.02"/>
+    <rect x="5" y="1" width="1.02" height="1.02"/>
+    <rect x="3" y="2" width="1.02" height="1.02"/>
+    <rect x="2" y="3" width="1.02" height="1.02"/>
+    <rect x="3" y="3" width="1.02" height="1.02"/>
+    <rect x="4" y="3" width="1.02" height="1.02"/>
+    <rect x="1" y="4" width="1.02" height="1.02"/>
+    <rect x="3" y="4" width="1.02" height="1.02"/>
+    <rect x="1" y="5" width="1.02" height="1.02"/>
+    <rect x="2" y="5" width="1.02" height="1.02"/>
+    <rect x="3" y="5" width="1.02" height="1.02"/>
+    <rect x="5" y="5" width="1.02" height="1.02"/>
+  </g>
+</svg>
