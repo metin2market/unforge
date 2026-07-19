@@ -9,34 +9,37 @@ and imposes no I/O on embedders.
 
 ## Levels
 
-Four: `debug` (per-step progress), `info` (milestones — code minted, client launched), `warn`
-(handled-but-unexpected: red bar, PoW challenge, retries), `error` (the operation failed).
+Five: `trace` (every HTTP call — see below), `debug` (per-step progress), `info` (milestones — code
+minted, client launched), `warn` (handled-but-unexpected: red bar, PoW challenge, retries), `error`
+(the operation failed).
 
 ## Sinks
 
 Two sinks are always on, wired by `configureLogging`:
 
 - **console** (stderr, so stdout stays clean — `account code` still prints only the code). Shows
-  `info`+ by default; `--verbose` drops it to `debug`+ (everything).
-- **file** — a rotating trail that always captures **everything** (`debug`+), regardless of the
-  console threshold. Default `%LOCALAPPDATA%\unforge\logs\unforge.log`; override with
-  `$UNFORGE_LOG_FILE`. Rotates at 5 MB, keeping the last 5 files. Written unbuffered so a one-shot
-  CLI run still leaves a complete trail.
+  `info`+ by default; `--verbose` drops it to `debug`+ — never `trace`.
+- **file** — a rotating trail that always captures **everything** (`trace`+, bodies included),
+  regardless of the console threshold. Default `%LOCALAPPDATA%\unforge\logs\unforge.log`; override
+  with `$UNFORGE_LOG_FILE`. Rotates at 20 MB, keeping the last 10 files — sized for the request
+  trace. Written unbuffered so a one-shot CLI run still leaves a complete trail.
 
 ## Request trace
 
-The redacted trail above is the wrong tool for diagnosing a GameForge refusal: it hides the very
-fields — blackbox, token, code, `gameId` — a diagnosis turns on. `--trace` wraps `fetch` and writes
-one JSONL line per request/response, **un-redacted**, to a per-run
-`%LOCALAPPDATA%\unforge\logs\trace-<stamp>.jsonl` (`--trace-file` or `$UNFORGE_TRACE` to choose the
-path). The CLI prints where it wrote, because the file holds live secrets and has to be scrubbed
-before it's shared. Its shape matches the captured launcher traffic, so the same tools read both.
+Every run wraps `fetch` and logs each call as a normal record at **`trace`** — one `→` before
+dispatch (so a hung call still leaves a mark) and one `←` with status and duration. No flag, no
+separate file: the network sits inline with the steps that made it, in `unforge.log`, read top to
+bottom. Always on because the failures worth diagnosing are one-shot — a spent challenge or a
+cooldown can't be reproduced on demand.
 
-`--trace` is a **boolean**, and deliberately so: as `--trace <file>` it swallowed the subcommand —
-`--trace launch` parsed as "write to a file named `launch`, run no command" and silently opened the
-web UI instead of launching.
+`trace` is below `debug`, so bodies reach the file sink and never the console, `--verbose` or not.
 
-`bun dev` passes `--verbose --trace`, so development runs are always fully recorded.
+`trace-scrub.ts` masks credentials before they're logged: `password` → a constant (nothing is
+diagnosable from one), `token`/`code`/`Authorization` → a truncated SHA-256, which keeps "same token
+as the last call?" answerable and is safe only because those are high-entropy. Blackbox, installation
+ids, cookies and email stay raw — that _is_ the diagnosis, and it's why bodies are logged as strings:
+`redactByField` walks record fields and would strip exactly those. The log stays
+device-identifying — local, gitignored, never pasted in public.
 
 unforge opens only the GameForge calls the auth flow needs — there is no telemetry sink in the tool.
 An embedding consumer can pass its own sinks to `configureLogging({ sinks })` to forward records

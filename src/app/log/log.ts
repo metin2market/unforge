@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { configure, getConsoleSink, withFilter, type LogLevel, type Sink } from "@logtape/logtape";
 import { getRotatingFileSink } from "@logtape/file";
 import { redactByField } from "@logtape/redaction";
-import { unforgeDataFile } from "../storage";
+import { unforgeDataFile } from "../../storage/index.ts";
 
 // Fields that carry secrets — never serialized raw, whichever sink they hit.
 const SECRET_FIELDS = ["password", "token", "code", "blackbox", "installationId"];
@@ -44,10 +44,12 @@ export async function configureLogging(opts: ConfigureLoggingOptions = {}): Prom
   const logDir = dirname(logFile);
   if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
   // bufferSize 0: each line is written straight through, so a one-shot CLI that exits
-  // immediately still leaves a complete trail. Rotates at 5 MB, keeping the last 5 files.
+  // immediately still leaves a complete trail. Sized for the request trace it carries — full
+  // request/response bodies are ~10x the volume of the step log, and the point of keeping them
+  // is being able to look back at the run that failed, not just the last one.
   const file = getRotatingFileSink(logFile, {
-    maxSize: 5 * 1024 * 1024,
-    maxFiles: 5,
+    maxSize: 20 * 1024 * 1024,
+    maxFiles: 10,
     bufferSize: 0,
   });
 
@@ -62,7 +64,9 @@ export async function configureLogging(opts: ConfigureLoggingOptions = {}): Prom
       ...Object.fromEntries(extra.map((s, i) => [extraNames[i], redacted(s)])),
     },
     loggers: [
-      { category: ["unforge"], lowestLevel: "debug", sinks: ["console", "file", ...extraNames] },
+      // `trace` (the request trace) is below `debug`, so it reaches the file but is filtered
+      // out of the console by `consoleLevel` — bodies would drown the terminal, --verbose or not.
+      { category: ["unforge"], lowestLevel: "trace", sinks: ["console", "file", ...extraNames] },
       { category: ["logtape", "meta"], lowestLevel: "warning", sinks: [] },
     ],
   });

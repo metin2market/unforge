@@ -111,7 +111,7 @@ function session(
       const region = opts.region ?? policy.region;
 
       // The two states that make `thin/codes` fail for a reason its 403 never names. Logged
-      // before the call, so the trail says *why* even when nobody re-runs with --trace.
+      // before the call, so the redacted trail says *why* without anyone opening the trace.
       if (account.retired) {
         log.warning("'{name}' is deleted or pending deletion — GameForge won't allow a code", {
           name: account.displayName,

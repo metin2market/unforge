@@ -17,7 +17,6 @@ import { Command } from "commander";
 import { getLogger } from "@logtape/logtape";
 import { VERSION } from "../index.ts";
 import { UnexpectedResponseError } from "../core/index.ts";
-import { stringField } from "../util/index.ts";
 import { describeError } from "../app/index.ts";
 import type { GfAccount } from "../storage/index.ts";
 import { detachOwnConsole } from "./hide-console.ts";
@@ -102,30 +101,15 @@ program
   .version(VERSION, "-v, --version")
   // Global: `unforge --verbose <command>` drops the console to debug for any command.
   .option("--verbose", "log every step to the console")
-  // Global: `unforge --trace <command>` dumps every request/response to a JSONL trace for
-  // diagnosis (un-redacted — holds secrets, gitignored). A boolean, deliberately: as
-  // `--trace <file>` it swallowed the subcommand — `--trace launch` parsed as "trace to a file
-  // named launch, run no command" and silently opened the UI instead. Use `--trace-file` to
-  // choose the path; `UNFORGE_TRACE` still works.
-  .option("--trace", "record a JSONL request trace for this run (diagnostic; holds secrets)")
-  .option(
-    "--trace-file <file>",
-    "where --trace writes (default: a timestamped file in the logs dir)",
-  )
   // Wire the logger + trace once before any command runs, so every command's status/error
   // output has sinks (unconfigured, LogTape is a no-op). `serve` reconfigures its own sinks.
   .hook("preAction", async () => {
-    const { configureLogging, installFetchTrace, traceFilePath } = await import("../app/index.ts");
+    const { configureLogging, installFetchTrace } = await import("../app/index.ts");
     await configureLogging({ verbose: verbose() });
-    const traceFile = program.opts().trace
-      ? (stringField(program.opts(), "traceFile") ?? traceFilePath())
-      : (stringField(program.opts(), "traceFile") ?? process.env.UNFORGE_TRACE);
-    if (traceFile) {
-      installFetchTrace(traceFile);
-      // Say where it went: an un-redacted trace is something the user has to find, read, and
-      // scrub before sharing it — a silent one is a secret written to a path nobody knows.
-      log.info("request trace → {file}", { file: traceFile });
-    }
+    // Always traced, no flag: a GameForge refusal is usually only diagnosable from the run that
+    // hit it, and that run is over by the time anyone thinks to ask for a trace. Goes into the
+    // normal log at `trace` level — see docs/logging.md.
+    installFetchTrace();
   })
   // No subcommand = double-clicked from the file manager: run as the "app" — detach the
   // stray console, open the window, and quit with it.

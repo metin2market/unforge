@@ -30,7 +30,6 @@ export { resolveCertPem, DEFAULT_CERT_PATH } from "./cert.ts";
 export { binName, gfAlias, gfHandle, resolveGameAccount, resolveGfAccount } from "./refs.ts";
 export type { ResolvedGameAccount } from "./refs.ts";
 
-export { configureLogging, type ConfigureLoggingOptions } from "./log.ts";
+export { configureLogging, installFetchTrace, type ConfigureLoggingOptions } from "./log/index.ts";
 export { describeError, type ErrorDescription, type ErrorKind } from "./describe-error.ts";
-export { installFetchTrace, installFetchTraceFromEnv, traceFilePath } from "./trace.ts";
 export { openUrl } from "./open-url.ts";
