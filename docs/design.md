@@ -21,7 +21,7 @@ The rule that keeps the boundary honest:
 
 So core holds no workflow, no persistence, and no default that encodes a decision of
 ours. Anything true because _we_ chose it — one device per GameForge account, cached
-sessions, `pt-PT` as the default region, minting a code only when committed to spawning —
+sessions, `pt-PT` as the default region, minting a code only when the client asks for one —
 is `app`. That is why [`GfSession`](../src/app/gf-session.ts) is not in core: it selects an
 account, threads a device, resolves a cert and applies region policy, none of which
 GameForge dictates.

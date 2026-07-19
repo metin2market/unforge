@@ -1,5 +1,6 @@
 // The client handoff protocol — pure. Everything here is dictated by GameForge: the pipe name, the
-// invocation, the method set, and the wire shapes. No I/O, so it's all unit-testable.
+// invocation, the method set, and the wire shapes. No I/O of its own (the mint is injected via the
+// ticket), so it's all unit-testable.
 // See docs/handoff.md.
 
 import type { LaunchTicket, RpcRequest } from "./types.ts";
@@ -72,12 +73,14 @@ export function sessionIdOf(req: RpcRequest): string | undefined {
  * The reply to one client call, or `undefined` when we have no answer (unknown method, or a call
  * for a launch we don't know) — the caller then sends nothing back.
  *
+ * `queryAuthorizationCode` mints a fresh code on every call.
+ *
  * `queryGameAccountNumericId` must answer with a JSON **number**; the rest are strings.
  */
-export function answerRpc(
+export async function answerRpc(
   req: RpcRequest,
   lookup: (sessionId: string) => LaunchTicket | undefined,
-): unknown {
+): Promise<unknown> {
   const method = (req.method ?? "").replace(/^ClientLibrary\./, "");
   if (method === "isClientRunning") return "true";
 
@@ -89,7 +92,7 @@ export function answerRpc(
   if (!ticket) return undefined;
   switch (method) {
     case "queryAuthorizationCode":
-      return ticket.code;
+      return await ticket.mintCode();
     case "queryGameAccountName":
       return ticket.name;
     case "queryGameAccountNumericId":

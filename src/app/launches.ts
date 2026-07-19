@@ -1,4 +1,4 @@
-// Launches — auth, mint, spawn, and answer the handoff pipe for a game client.
+// Launches — auth, spawn, and answer the handoff pipe for a game client.
 //
 // A launch is tracked state, not a promise you await. The interesting transition
 // (`awaiting-client` → `logged-in`) waits on a **person** clicking Join, which is unbounded

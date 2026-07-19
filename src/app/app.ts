@@ -1,7 +1,7 @@
 // unforge app — the complete workflows, over core + storage.
 //
 // This is where policy lives: one device per GameForge account, cached sessions, region and
-// locale defaults, cert resolution, minting a code only when committed to spawning. `core`
+// locale defaults, cert resolution, minting a code only when the client asks for one. `core`
 // has none of it, deliberately.
 //
 // Shaped for a long-lived host, because that is the demanding consumer and the CLI gets it
@@ -124,8 +124,8 @@ export interface AccountsApi {
   /** Create one under a login — the multibox lever. Omit `gf` when only one login exists. */
   create(input: { displayName: string; gf?: string; region?: string }): Promise<GameAccountRow>;
   /**
-   * Mint a one-time login code. Diagnostic — prefer `launches.start`, which mints only once
-   * committed to spawning. An unconsumed code blocks the account for ~18 minutes.
+   * Mint a one-time login code. Diagnostic — prefer `launches.start`, which mints only when the
+   * client asks. An unconsumed code blocks the account for ~18 minutes.
    */
   mintCode(ref: string): Promise<{ code: string; account: StoredGameAccount; numericId: number }>;
 }
@@ -166,6 +166,10 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
           method,
           outcome: answered ? "answered" : "(no answer)",
         });
+      },
+      // The client just gets no answer, so this is the only place the reason surfaces.
+      onError: (method, _sessionId, err) => {
+        log.error("handoff: {method} failed — {error}", { method, error: errorMessage(err) });
       },
     }));
 
@@ -436,8 +440,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       const { gfId, game } = resolveGameAccount(store.list(), ref);
       const gf = store.get(gfId)!;
 
-      // Fail before burning an auth if the client isn't reachable: an unconsumed code locks
-      // the account out of a retry for ~18 minutes.
+      // Fail before burning an auth if the client isn't reachable.
       const gameDir = config.gameDir(game.region);
       if (!gameDir) {
         throw new Error(
@@ -445,7 +448,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         );
       }
       const clientDir = findClientDir(gameDir, game.region);
-      // Same reason: bind the pipe before minting, so PipeInUseError never costs a code.
+      // Same reason: bind the pipe before spawning, so PipeInUseError surfaces here.
       const pipe = await ensureHandoff();
 
       const state: LaunchState = {
@@ -460,23 +463,27 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       launches.add(state);
 
       try {
-        // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
-        const { code, remote } = await withSession(
+        // Only the account is resolved, for the ticket's `numericId`. Minting here would leave a
+        // code outstanding across the unbounded wait at the server screen, holding the account
+        // ~18 minutes if the client is closed before joining. Retryable: a read.
+        const remote = await withSession(
           gf,
-          async (session) => {
-            const all = await session.accounts();
-            const target = pickRemote(all, game);
-            return {
-              code: await session.mintCode(target, { region: game.region }),
-              remote: target,
-            };
-          },
+          async (session) => pickRemote(await session.accounts(), game),
           { retryable: true },
         );
 
         launches.update(state.id, { status: "spawning" });
+        // Minted per ask, never stored — see docs/handoff.md.
+        // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
         const sessionId = pipe.register({
-          code,
+          mintCode: () => {
+            log.debug("handoff: minting a login code for {name}", {
+              name: game.displayName ?? game.username,
+            });
+            return withSession(gf, (session) => session.mintCode(remote, { region: game.region }), {
+              retryable: true,
+            });
+          },
           name: game.displayName ?? game.username,
           numericId: remote.numericId,
         });

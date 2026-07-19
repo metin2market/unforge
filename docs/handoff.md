@@ -92,6 +92,14 @@ gone and it fails with _"the launcher is no longer working"_ — so the handshak
 startup step, and a served code is not permission to hang up. Whether the client also probes during
 play is **untested**; assume it might.
 
+**Every entry asks again, and needs a _new_ code.** Rejoining replays the whole burst, and the previous
+code is spent — so a responder that holds one code and echoes it answers the second entry with a dead
+credential, which fails in-game while the pipe looks healthy, every call `answered`. So
+`LaunchTicket.mintCode` mints per call and `launches.start` mints nothing, only resolving the account
+for its `numericId`. That also keeps a code from sitting outstanding across the wait at the server
+screen: an unconsumed one holds the account for ~18 minutes
+([protocol.md](./protocol.md#4-code--mint-the-one-time-login-code)).
+
 The consequence: **there is no safe timeout.** Any cap is a guess about a human, and closing early
 fails silently and confusingly. So the pipe's lifetime is the _app's_, not any one launch's: the
 `App` ([design.md](./design.md)) hosts one server from the first launch until `close()`, and
@@ -119,9 +127,9 @@ the central design constraint, and it cuts both ways:
   (`gfservice.exe` / `GameforgeClientService` is a different pipe — the launcher's install/update
   plumbing, unrelated to the handoff. Leave it running.)
 - **One server serves every client.** Because each call carries its `sessionId`, a single pipe server
-  multiplexes any number of concurrent clients: keep a `sessionId → {code, name, numericId}` registry,
-  spawn each client with its own GUID, and answer per session. This is what makes multibox work, and it
-  is why the launch API cannot be a self-contained fire-and-forget spawn.
+  multiplexes any number of concurrent clients: keep a `sessionId → {mintCode, name, numericId}`
+  registry, spawn each client with its own GUID, and answer per session. This is what makes multibox
+  work, and it is why the launch API cannot be a self-contained fire-and-forget spawn.
 
 ## Constraints worth designing around
 
@@ -131,7 +139,7 @@ the central design constraint, and it cuts both ways:
 - **A code must be consumed.** An unconsumed code stays outstanding for roughly **18 minutes**, and
   GameForge refuses to mint another meanwhile — `403 {"error":{"message":"Not allowed to create code"}}`.
   A launch that dies before the client finishes the handoff therefore locks the account out of a retry
-  for that long. Mint only when committed to spawning.
+  for that long. Mint only when the client asks.
 - **Don't strand a session.** Force-killing a live client (or tree-killing `gfclient`, whose child the
   client is) leaves its session hanging server-side and produces the same 403. Close clients cleanly.
 - **Pace the logins.** Each attempt is a full `sessions` → `iovation` → `thin/codes` cycle; that churn

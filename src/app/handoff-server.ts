@@ -24,6 +24,8 @@ export interface HandoffServerOptions {
   pipeName?: string;
   /** Every request, answered or not — how a host tracks a client reaching each stage. */
   onCall?: (call: { method: string; sessionId?: string; answered: boolean }) => void;
+  /** A request that threw rather than produced an answer — in practice a failed mint. */
+  onError?: (method: string, sessionId: string | undefined, error: unknown) => void;
 }
 
 export interface HandoffServer {
@@ -45,6 +47,7 @@ export interface HandoffServer {
 export async function createHandoffServer({
   pipeName = HANDOFF_PIPE_NAME,
   onCall,
+  onError,
 }: HandoffServerOptions = {}): Promise<HandoffServer> {
   const tickets = new Map<string, LaunchTicket>();
   const path = pipePath(pipeName);
@@ -52,6 +55,9 @@ export async function createHandoffServer({
   const server = net.createServer((conn) => {
     // One connection per call: the client opens the pipe, sends a request, reads the reply, closes.
     let buf = "";
+    // Answers are async (each mints a code), so they're chained: concurrent mints would burn
+    // codes the client never asked for.
+    let answering: Promise<void> = Promise.resolve();
     conn.on("data", (chunk) => {
       buf += chunk.toString("utf8");
       const { objects, rest } = drainJsonObjects(buf);
@@ -60,21 +66,28 @@ export async function createHandoffServer({
         const parsed: unknown = parseJson(raw);
         if (!isRecord(parsed)) continue; // not ours to interpret; ignore rather than kill the connection
         const req: RpcRequest = parsed;
-        const result = answerRpc(req, (id) => tickets.get(id));
-        // The method and session, never the result — the result is the login code.
-        onCall?.({
-          method: req.method ?? "(none)",
-          sessionId: sessionIdOf(req),
-          answered: result !== undefined,
+        answering = answering.then(async () => {
+          // A failed mint must not take the pipe down for every other launch.
+          const result: unknown = await answerRpc(req, (id) => tickets.get(id)).catch(
+            (err: unknown) => {
+              onError?.(req.method ?? "(none)", sessionIdOf(req), err);
+            },
+          );
+          // The method and session, never the result — the result is the login code.
+          onCall?.({
+            method: req.method ?? "(none)",
+            sessionId: sessionIdOf(req),
+            answered: result !== undefined,
+          });
+          if (result !== undefined) conn.write(encodeResponse(req, result));
         });
-        if (result !== undefined) conn.write(encodeResponse(req, result));
       }
     });
     conn.on("error", () => {}); // a client vanishing mid-call must not take the server down
   });
 
   await new Promise<void>((resolve, reject) => {
-    const onError = (err: NodeJS.ErrnoException): void => {
+    const onListenError = (err: NodeJS.ErrnoException): void => {
       // Match the message, not the code: Bun reports an already-taken named pipe as
       // `ERR_INVALID_ARG_TYPE`, not `EADDRINUSE`, which would slip past a code check and surface
       // as a bare "Failed to listen at …" instead of something the user can act on.
@@ -82,9 +95,9 @@ export async function createHandoffServer({
         err.code === "EADDRINUSE" || /failed to listen|already in use/i.test(err.message);
       reject(taken ? new PipeInUseError(path) : err);
     };
-    server.once("error", onError);
+    server.once("error", onListenError);
     server.listen(path, () => {
-      server.removeListener("error", onError);
+      server.removeListener("error", onListenError);
       resolve();
     });
   });

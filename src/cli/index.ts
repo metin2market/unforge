@@ -146,10 +146,13 @@ program
       // `start` returns as soon as the client exists — the client asks for its login only when
       // the user clicks Join, and keeps expecting a responder afterwards. Holding the process
       // open is the CLI's policy; the library has no opinion about it.
+      // On the transition, not the state: the client re-enters `logged-in` on every rejoin.
+      let loggedIn = false;
       a.subscribe((e) => {
-        if (e.type === "launch" && e.launch.id === launch.id && e.launch.status === "logged-in") {
-          log.info("client logged in");
-        }
+        if (e.type !== "launch" || e.launch.id !== launch.id) return;
+        const now = e.launch.status === "logged-in";
+        if (now && !loggedIn) log.info("client logged in");
+        loggedIn = now;
       });
       log.info(
         "keep this window open while you play — closing it breaks the game's launcher link.",

@@ -4,7 +4,11 @@ import { createHandoffServer } from "./handoff-server.ts";
 import type { LaunchTicket } from "../core/handoff/index.ts";
 
 const onWindows = process.platform === "win32";
-const session: LaunchTicket = { code: "c-1", name: "acct", numericId: 1 };
+const session: LaunchTicket = {
+  mintCode: () => Promise.resolve("c-1"),
+  name: "acct",
+  numericId: 1,
+};
 const uniquePipe = (): string => `unforge-test-${crypto.randomUUID()}`;
 
 // Named pipes are a Windows thing; the handoff is Windows-only.

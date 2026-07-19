@@ -1,9 +1,9 @@
 # Launch — spawning the game client
 
-Once a [`GfSession`](../src/app/gf-session.ts) mints a `thin/codes` login code, `launch` spawns the game
-client from the region's game dir and hands it that code over a named pipe, so the client logs itself
-in. The wire-level detail of that exchange is [handoff.md](./handoff.md); this doc is the surrounding
-Windows machinery — finding the client, spawning it, elevation, and config.
+`launch` spawns the game client from the region's game dir and answers it over a named pipe, minting a
+`thin/codes` login code from a [`GfSession`](../src/app/gf-session.ts) whenever it asks for one, so the
+client logs itself in. The wire-level detail of that exchange is [handoff.md](./handoff.md); this doc is
+the surrounding Windows machinery — finding the client, spawning it, elevation, and config.
 
 This is the **Windows-only** half of unforge; the auth half is cross-platform ([design.md](./design.md)).
 [`spawnClient`](../src/launch/index.ts) is the library API; the application layer
