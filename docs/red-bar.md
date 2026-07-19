@@ -84,8 +84,13 @@ worth trying.
 
 Community advice is consistent: during a block, make **no** further attempt for several hours. One
 report gives a mechanism — that each attempt restarts the counter — which would explain why the
-wait never ends for people who keep trying. **Unverified**, and resting on a single message, but it
-costs nothing to assume: a retry has no upside here either way.
+wait never ends for people who keep trying.
+
+Our own two recoveries fit it, without proving it. A login refused at 21:03 was left untouched and
+minted normally by 22:26 (~82 min); a second, refused after a burst of attempts, recovered ~37 min
+after they stopped. Both cleared once probing stopped, and both had looked persistent while it
+continued. Time alone is an equally good explanation for either — but the practical advice is the
+same, and a retry has no upside regardless.
 
 Hunt2's staff (the bot vendor, not GameForge) describe the block as temporary, caused by logging in
 too often or by a flagged IP, clearing in ~12–24 h, and unaffected by switching to manual login.

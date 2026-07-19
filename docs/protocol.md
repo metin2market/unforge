@@ -140,15 +140,15 @@ body never says which cause applies. Four produce it, in rough order of how ofte
    block ([red-bar.md](./red-bar.md#dont-retry-while-blocked)).
 2. **The region is wrong** — `gameId` is sent as `<gameId>.<region>`, and a region that isn't where
    the account lives is refused exactly like the rest. See [Regions](#regions).
-3. **The login can't play** — a block ("red bar", [red-bar.md](./red-bar.md)), an account GF has
-   deleted or scheduled for deletion (`deleted` / `preDeleted` on `user/accounts`), or one
-   otherwise ineligible. A block is **per GameForge login, not per game account**: one measured
-   login refused on every game account — including one created seconds earlier, so no code could
-   have been outstanding — while a second login minted normally in the same minute. It stayed
-   refused across two days, though attempts were made throughout, and retrying may itself extend a
-   block, so that duration is not evidence of anything. **Nothing readable detects it**: `user/me`
-   `validated`, the deletion flags, and `user/game/<gameId>/environment/<envId>` →
-   `permissions: ["play","install"]` were all clean for the blocked login.
+3. **The login is in cooldown** — a temporary block ("red bar", [red-bar.md](./red-bar.md)), or an
+   account GF has deleted or scheduled for deletion (`deleted` / `preDeleted` on `user/accounts`).
+   A cooldown is **per GameForge login, not per game account**: one measured login refused on every
+   game account — including one created seconds earlier, so no code could have been outstanding —
+   while a second login minted normally in the same minute. It **cleared by itself** once left
+   alone: refused at 21:03, untouched, minting again by 22:26. Measured recoveries are ~37 min and
+   ~82 min, both after attempts stopped. **Nothing readable detects it**: `user/me` `validated`,
+   the deletion flags, and `user/game/<gameId>/environment/<envId>` →
+   `permissions: ["play","install"]` were all clean throughout.
 4. **The account isn't activated** — a freshly-registered GF login whose email hasn't been
    confirmed (`validated` is null on `user/me`; see
    [Registering](#registering-a-gameforge-account)). New accounts only, and waiting won't fix it.
