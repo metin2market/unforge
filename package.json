@@ -1,6 +1,6 @@
 {
   "name": "unforge",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Launch GameForge games without the GameForge launcher — a TypeScript library and single-binary CLI reproducing spark.gameforge.com login.",
   "license": "MIT",
   "author": "Cyrill Brito",
