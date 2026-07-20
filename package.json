@@ -21,7 +21,7 @@
   },
   "scripts": {
     "dev": "bun src/cli/index.ts --verbose",
-    "build": "bun build --compile --minify --windows-hide-console --windows-title=unforge src/cli/index.ts --outfile unforge",
+    "build": "bun build --compile --minify --windows-hide-console --windows-title=unforge --windows-icon=assets/unforge.ico --windows-publisher=\"Cyrill Brito\" --windows-description=\"Launch GameForge games without the GameForge launcher\" src/cli/index.ts --outfile unforge",
     "fmt": "oxfmt --write .",
     "test": "bun test",
     "check": "oxfmt --check . && oxlint && tsc --noEmit"
