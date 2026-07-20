@@ -21,8 +21,8 @@ The rule that keeps the boundary honest:
 
 So core holds no workflow, no persistence, and no default that encodes a decision of
 ours. Anything true because _we_ chose it — one device per GameForge account, cached
-sessions, `pt-PT` as the default region, minting a code only when the client asks for one —
-is `app`. That is why [`GfSession`](../src/app/gf-session.ts) is not in core: it selects an
+sessions, minting a code only when the client asks for one — is `app`.
+That is why [`GfSession`](../src/app/gf-session.ts) is not in core: it selects an
 account, threads a device, resolves a cert and applies region policy, none of which
 GameForge dictates.
 
@@ -148,6 +148,10 @@ They are **non-strict**. GameForge accretes fields, and unknown keys are dropped
 to a field unforge actually reads is an error. That is what keeps the signal worth acting on
 instead of noise to be suppressed. It also means schemas model _what we read_, not the whole
 payload — `guls` carries four fields and `user/accounts` declares the one it uses.
+
+What a schema _does_ declare is **required**: a speculative `.optional()` only relocates the
+requirement into a downstream guard, so the failure surfaces far from the contract that broke and
+without a field name on it. Optionality has to be earned by a capture where the field is absent.
 
 Note this is diagnosis at the moment of failure, not early warning: nothing here notices GF
 changing until a call is made. Detection would be a scheduled canary running the flow, which is a

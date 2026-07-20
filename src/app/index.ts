@@ -5,7 +5,8 @@
 // drive that one object, so command logic lives here rather than per frontend — and a
 // long-lived host can re-expose it as-is, since nothing here assumes it owns the process.
 
-export { openApp, DEFAULT_LOCALE, DEFAULT_REGION } from "./app.ts";
+export { openApp } from "./app.ts";
+export { regionLabel } from "./region-text.ts";
 export type {
   App,
   AppEvent,

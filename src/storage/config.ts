@@ -6,20 +6,32 @@
 // One install, set once: `unforge config set game-dir … --region`.
 
 import { z } from "zod";
+import { isRegion, type Region } from "../core/index.ts";
 import { parseJson } from "../util/index.ts";
 import { atomicWrite } from "./atomic-write.ts";
 import { unforgeDataFile } from "./paths.ts";
 
+/** Region → game-client dir (holds `metin2client.exe`), e.g. `{ "pt-PT": "C:/…/pt-PT" }`. */
+export type GameDirs = Partial<Record<Region, string>>;
+
 /**
- * The persisted machine-level config. `version` lets the shape evolve in code, so it is read
- * back rather than re-stamped. Both fields default: this file is hand-editable and holds only
- * paths, so a malformed one costs a re-run of `config set`, not an account — losing a bad entry
- * beats refusing to launch. (The account store takes the opposite line, and should.)
+ * The persisted machine-level config. `version` is read back rather than re-stamped, so the shape
+ * can evolve in code. Both fields default: this file is hand-editable and holds only paths, so a
+ * malformed one costs a re-run of `config set` rather than a launch.
+ *
+ * `gameDirs` is keyed by region by construction — an unknown key is dropped here, the one place
+ * the file is read, so nothing downstream re-filters and `config list` can't disagree with
+ * `account create` about what's installed.
  */
 export const UnforgeConfig = z.object({
   version: z.number().default(() => CONFIG_VERSION),
-  /** Region → game-client dir (holds `metin2client.exe`), e.g. `{ "pt-PT": "C:/…/pt-PT" }`. */
-  gameDirs: z.record(z.string(), z.string()).catch({}).default({}),
+  gameDirs: z
+    .record(z.string(), z.string())
+    .transform(
+      (dirs): GameDirs => Object.fromEntries(Object.entries(dirs).filter(([r]) => isRegion(r))),
+    )
+    .catch({})
+    .default({}),
 });
 export type UnforgeConfig = z.infer<typeof UnforgeConfig>;
 
@@ -35,12 +47,17 @@ function emptyConfig(): UnforgeConfig {
 }
 
 export interface ConfigStore {
-  /** The whole config (a copy). */
-  get(): UnforgeConfig;
+  /** Every region with a client installed here — what `account create` and `config list` ask. */
+  regions(): Region[];
+  /** The dirs by region, as a copy. Mutate through {@link ConfigStore.setGameDirs}. */
+  gameDirs(): GameDirs;
   /** The game-client dir for a region, or undefined. */
-  gameDir(region: string): string | undefined;
-  /** Set the game-client dir for a region. */
-  setGameDir(region: string, dir: string): Promise<void>;
+  gameDir(region: Region): string | undefined;
+  /**
+   * Set region → dir pairs. Takes several because that's what discovery produces (one install
+   * root, a folder per region) and they land in a single write rather than one file rewrite each.
+   */
+  setGameDirs(entries: Iterable<readonly [Region, string]>): Promise<void>;
 }
 
 class FileConfigStore implements ConfigStore {
@@ -49,22 +66,27 @@ class FileConfigStore implements ConfigStore {
     private config: UnforgeConfig,
   ) {}
 
-  get(): UnforgeConfig {
-    return structuredClone(this.config);
+  // `filter` because `Object.keys` widens back to `string[]`; the schema already dropped non-regions.
+  regions(): Region[] {
+    return Object.keys(this.config.gameDirs).filter(isRegion);
   }
 
-  gameDir(region: string): string | undefined {
+  gameDirs(): GameDirs {
+    return { ...this.config.gameDirs };
+  }
+
+  gameDir(region: Region): string | undefined {
     return this.config.gameDirs[region];
   }
 
-  private async save(): Promise<void> {
+  async setGameDirs(entries: Iterable<readonly [Region, string]>): Promise<void> {
+    const gameDirs = { ...this.config.gameDirs };
+    for (const [region, dir] of entries) gameDirs[region] = dir;
+    const next = { ...this.config, gameDirs };
     // atomicWrite's temp write creates the config dir if it's missing, so opening stays read-only.
-    await atomicWrite(this.path, JSON.stringify(this.config, null, 2));
-  }
-
-  async setGameDir(region: string, dir: string): Promise<void> {
-    this.config.gameDirs[region] = dir;
-    await this.save();
+    await atomicWrite(this.path, JSON.stringify(next, null, 2));
+    // Adopted only once the write survived, so a failure can't leave memory ahead of disk.
+    this.config = next;
   }
 }
 

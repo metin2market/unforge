@@ -70,6 +70,15 @@ export function sessionIdOf(req: RpcRequest): string | undefined {
 }
 
 /**
+ * A method name without the client's `ClientLibrary.` namespace, which it sends on some calls and
+ * omits on others. GameForge's convention, so it's stated here — anyone matching on a method name
+ * off the pipe goes through this rather than re-deriving the prefix.
+ */
+export function bareMethod(method: string | undefined): string {
+  return (method ?? "").replace(/^ClientLibrary\./, "");
+}
+
+/**
  * The reply to one client call, or `undefined` when we have no answer (unknown method, or a call
  * for a launch we don't know) — the caller then sends nothing back.
  *
@@ -81,7 +90,7 @@ export async function answerRpc(
   req: RpcRequest,
   lookup: (sessionId: string) => LaunchTicket | undefined,
 ): Promise<unknown> {
-  const method = (req.method ?? "").replace(/^ClientLibrary\./, "");
+  const method = bareMethod(req.method);
   if (method === "isClientRunning") return "true";
 
   const sessionId = sessionIdOf(req);

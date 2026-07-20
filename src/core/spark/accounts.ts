@@ -12,8 +12,11 @@ import {
 import type { GameAccount } from "../types.ts";
 
 // Only the fields we read. GF adds fields over time; unknown keys are dropped rather than
-// rejected. `accountGroup` and the deletion stamps matter more than they look: both are
-// reasons `thin/codes` answers "Not allowed to create code", and its body names neither.
+// rejected — but every key named here is required, at the shape GF was observed to send. A
+// field we depend on going missing is a contract change, and it should fail here naming the
+// field rather than downstream as a mystery. `accountGroup` and the deletion stamps matter
+// more than they look: both are reasons `thin/codes` answers "Not allowed to create code",
+// and its body names neither.
 const RawGameAccount = z.object({
   id: z.string(),
   accountNumericId: z.number(),
@@ -21,14 +24,12 @@ const RawGameAccount = z.object({
   usernames: z.array(z.string()),
   gameId: z.string(),
   /** Which localized community + server group the account belongs to, e.g. "pt". */
-  accountGroup: z.string().optional(),
-  /** Set once the account is scheduled for deletion; it can still be listed, but not played. */
-  deleted: z.string().nullish(),
-  preDeleted: z.string().nullish(),
+  accountGroup: z.string(),
+  /** Deletion stamps: a timestamp once scheduled, explicit `null` while the account is live. */
+  deleted: z.string().nullable(),
+  preDeleted: z.string().nullable(),
   guls: z.object({
     game: z.string(),
-    server: z.string().optional(),
-    lang: z.string().optional(),
   }),
 });
 
@@ -63,10 +64,7 @@ export async function listGameAccounts(
     usernames: acc.usernames,
     gameId: acc.gameId,
     gameName: acc.guls.game,
-    // `guls.lang` is the older spelling and agrees wherever both appear; `accountGroup` is the
-    // one GF sets on creation, so it wins.
-    accountGroup: acc.accountGroup ?? acc.guls.lang,
-    server: acc.guls.server,
+    accountGroup: acc.accountGroup,
     // `deleted`/`preDeleted` are timestamps; only their presence is meaningful to us.
     retired: Boolean(acc.deleted ?? acc.preDeleted),
   }));

@@ -49,6 +49,47 @@ test("rejects a blob that isn't the shape we wrote", async () => {
   await expect(loadState(path)).rejects.toThrow(/isn't in the current format/);
 });
 
+test("stale game accounts empty out, keeping the secrets that can't be re-fetched", async () => {
+  const device = createDevice();
+  // The pre-group shape: `username` + `region`, no `accountGroup`.
+  await seal({
+    accounts: [
+      {
+        id: "acc-1",
+        email: "a@example.com",
+        gameAccounts: [
+          { accountId: "g-1", username: "hero100", displayName: "Hero One", region: "pt-PT" },
+        ],
+        createdAt: 1,
+        secrets: { password: "pw", device },
+      },
+    ],
+  });
+
+  const state = await loadState(path);
+  expect(state.accounts[0].gameAccounts).toEqual([]);
+  expect(state.accounts[0].secrets.device).toEqual(device);
+  expect(state.accounts[0].secrets.password).toBe("pw");
+});
+
+test("one unreadable game account empties the set — they re-list together or not at all", async () => {
+  await seal({
+    accounts: [
+      {
+        id: "acc-1",
+        email: "a@example.com",
+        gameAccounts: [
+          { accountId: "g-1", displayName: "Good", accountGroup: "pt" },
+          { accountId: "g-2", displayName: "Bad" },
+        ],
+        createdAt: 1,
+        secrets: { password: "pw", device: createDevice() },
+      },
+    ],
+  });
+  expect((await loadState(path)).accounts[0].gameAccounts).toEqual([]);
+});
+
 test("rejects a pre-nesting store rather than crashing later in a getter", async () => {
   // The old flat shape: password/device/session on the account, no `secrets`. This parses
   // fine as an object with an accounts array, so only the per-account check catches it.

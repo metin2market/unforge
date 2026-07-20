@@ -6,11 +6,11 @@ import { buildAttestRequest } from "../src/core/spark/iovation.ts";
 import { buildCreateAccountRequest } from "../src/core/spark/create-account.ts";
 import { buildCodeRequest } from "../src/core/spark/codes.ts";
 import { decryptBlackbox } from "../src/core/blackbox/index.ts";
+import { GAMEFORGE_CERT_PEM, groupForRegion, isRegion } from "../src/core/index.ts";
 import { sha256 } from "../src/core/crypto.ts";
 import type { SparkRequest } from "../src/core/http.ts";
 import type { GameAccount } from "../src/core/types.ts";
 import { type CaptureEntry, findRequests, hasCaptures, header } from "./support/captures.ts";
-import { loadCertPem } from "./support/materials.ts";
 
 const pathIs = (p: string) => (e: CaptureEntry) => new URL(e.url).pathname === p;
 
@@ -90,6 +90,8 @@ d("create-account requests match the launcher", () => {
         gfLang: b.gfLang,
         accountGroup: b.accountGroup,
         blackbox: b.blackbox,
+        // Never reaches this body — only the captcha, if one fires. Any region does.
+        locale: "pt-PT",
       });
       expect(built.body).toBe(entry.reqBody);
     }
@@ -160,10 +162,13 @@ d("PoW solver solves the launcher's real challenge", () => {
   });
 });
 
-describe.skipIf(!hasCaptures() || !loadCertPem())("thin/codes requests match the launcher", () => {
+describe.skipIf(!hasCaptures())("thin/codes requests match the launcher", () => {
   function build(entry: CaptureEntry): SparkRequest {
     const b = JSON.parse(entry.reqBody);
     const [gameId, region] = (b.gameId as string).split(/\.(?=[a-z]{2}-[A-Z]{2}$)/);
+    // Narrowed rather than asserted: the capture is real launcher traffic, so a suffix the table
+    // doesn't know means the table is out of date — worth failing loudly on.
+    if (!isRegion(region)) throw new Error(`capture carries an unknown region: ${region}`);
     // Only `id` and `gameId` reach the request; the rest are unread placeholders.
     const account: GameAccount = {
       id: b.platformGameAccountId,
@@ -172,6 +177,7 @@ describe.skipIf(!hasCaptures() || !loadCertPem())("thin/codes requests match the
       usernames: [],
       gameId,
       gameName: "metin2",
+      accountGroup: groupForRegion(region),
       retired: false,
     };
     const version = header(entry, "user-agent")!.match(/^Chrome\/C(\S+) /)![1];
@@ -180,7 +186,7 @@ describe.skipIf(!hasCaptures() || !loadCertPem())("thin/codes requests match the
       account,
       installationId: header(entry, "tnt-installation-id")!,
       clientVersion: { version, branch: "master", commitId: "" },
-      certificatePem: loadCertPem()!,
+      certificatePem: GAMEFORGE_CERT_PEM,
       sessionId: b.gsid.replace(/-\d+$/, ""),
       rawBlackbox: decryptBlackbox(b.blackbox, b.gsid, b.platformGameAccountId),
       region,

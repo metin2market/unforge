@@ -27,11 +27,8 @@ generic transport, no launcher, no client cert presented.
 
 **Gotcha for new accounts: verify the email before you can play.** A headless-registered GF account
 can log in and create game accounts, but `thin/codes` (step 4) `403`s until its email is confirmed.
-That same `403` is generic and has three other causes, so read it by context: on a **new** account
-it is almost always the unconfirmed email; otherwise it is a region/`accountGroup` mismatch (asking
-to play the account somewhere it doesn't exist — ours to get right, and the one cause we detect and
-attach as context), an outstanding code from an earlier launch (clears itself in ~18m), or a login
-block — [protocol.md → Code](./protocol.md#4-code--mint-the-one-time-login-code).
+That `403` is generic and has three other causes — on a new account it is almost always this one;
+otherwise read it by context ([protocol.md → Code](./protocol.md#4-code--mint-the-one-time-login-code)).
 
 ## The one rule that makes it work: a fresh blackbox per call
 
@@ -133,10 +130,7 @@ The login-and-launch chain is complete, so the frontier is shape, not plumbing:
   (solved headless, but each one adds latency) ([pow-captcha.md](./pow-captcha.md), [design.md](./design.md)).
 - **One identity per account** — persist the device identity + `installationId` per GF account; don't
   churn fingerprints, and don't mix a launcher login and a headless one on the same account.
-- **Not every `403` is retryable.** `thin/codes` `403`s with `Not allowed to create code` for four
-  different reasons, all surfaced as `CodeNotAllowedError`. Only one is worth waiting out: an
-  outstanding code from an earlier launch, where **only time fixes it** (~18m; see
-  [handoff.md](./handoff.md)). A region/`accountGroup` mismatch is ours to fix and waiting never
-  helps — the error carries a `CodeNotAllowedContext` so a caller can tell that case apart instead
-  of guessing. Other isolated `403`s have been seen to pass on a fresh retry. The library never
-  retries on its own; the caller decides, and should branch on the error type rather than the status.
+- **Not every `403` is retryable.** `Not allowed to create code` covers four causes, all surfaced as
+  `CodeNotAllowedError` and only one of them worth waiting out
+  ([protocol.md](./protocol.md#4-code--mint-the-one-time-login-code)). The library never retries on
+  its own; the caller decides, and should branch on the error type rather than the status.

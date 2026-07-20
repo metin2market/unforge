@@ -21,7 +21,6 @@
   },
   "scripts": {
     "dev": "bun src/cli/index.ts --verbose",
-    "smoke": "bun scripts/smoke.ts",
     "build": "bun build --compile --minify --windows-hide-console --windows-title=unforge src/cli/index.ts --outfile unforge",
     "fmt": "oxfmt --write .",
     "test": "bun test",

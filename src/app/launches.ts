@@ -8,6 +8,7 @@
 // exactly one. See docs/handoff.md.
 
 import { getLogger } from "@logtape/logtape";
+import { bareMethod } from "../core/handoff/index.ts";
 import type { StoredGameAccount } from "../storage/index.ts";
 import type { HandoffServer } from "./handoff-server.ts";
 
@@ -81,14 +82,22 @@ export class LaunchRegistry {
     this.onChange(next);
   }
 
-  /** Advance the launch a pipe call belongs to. `initSession` is the client saying hello. */
-  onHandoffCall(sessionId: string | undefined, method: string): void {
-    if (!sessionId) return;
-    const id = this.sessionToId.get(sessionId);
+  /**
+   * Advance the launch a pipe call belongs to. `queryAuthorizationCode` counts only when
+   * *answered* — a failed mint arrives here too, and would otherwise report as logged-in.
+   */
+  onHandoffCall(sessionId: string | undefined, method: string, answered: boolean): void {
+    const id = sessionId && this.sessionToId.get(sessionId);
     if (!id) return;
-    const bare = method.replace(/^ClientLibrary\./, "");
+    const bare = bareMethod(method);
     if (bare === "initSession") this.update(id, { status: "connected" });
-    if (bare === "queryAuthorizationCode") this.update(id, { status: "logged-in" });
+    if (bare === "queryAuthorizationCode" && answered) this.update(id, { status: "logged-in" });
+  }
+
+  /** A pipe call that threw — in practice a refused mint, which is the launch failing. */
+  onHandoffError(sessionId: string | undefined, error: string): void {
+    const id = sessionId && this.sessionToId.get(sessionId);
+    if (id) this.update(id, { status: "failed", error });
   }
 
   /**

@@ -54,8 +54,7 @@ export type DeviceProfile = z.infer<typeof DeviceProfile>;
  * choice. `pluginsHash` is SHA-256 of `[]`, CEF's empty plugin list; the UA is imported so it
  * can't drift from the header we send.
  *
- * `timeZone`/`languages` are deliberately absent — they follow the account's region
- * ({@link localeFor}), since a Portuguese IP reporting a London clock is a geo mismatch.
+ * `timeZone`/`languages` are deliberately absent — they come from the host ({@link hostLocale}).
  */
 export const LAUNCHER_BROWSER_FIELDS: Pick<
   DeviceProfile,
@@ -69,37 +68,22 @@ export const LAUNCHER_BROWSER_FIELDS: Pick<
   pluginsHash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
 };
 
-/** Where a device lands when no region is known. Independent of `app`'s default region. */
-const FALLBACK_REGION = "pt-PT";
-
-/** IANA zone per region GF runs Metin2 in; unknown regions fall back rather than invent one. */
-const TIME_ZONES: Record<string, string> = {
-  "pt-PT": "Europe/Lisbon",
-  "en-GB": "Europe/London",
-  "de-DE": "Europe/Berlin",
-  "es-ES": "Europe/Madrid",
-  "fr-FR": "Europe/Paris",
-  "it-IT": "Europe/Rome",
-  "pl-PL": "Europe/Warsaw",
-  "tr-TR": "Europe/Istanbul",
-  "nl-NL": "Europe/Amsterdam",
-  "ro-RO": "Europe/Bucharest",
-  "hu-HU": "Europe/Budapest",
-  "cs-CZ": "Europe/Prague",
-  "da-DK": "Europe/Copenhagen",
-  "el-GR": "Europe/Athens",
-};
-
-/** The clock and `navigator.languages` for `region`. Chrome appends the `en-US,en` fallback for
- * non-English locales. An unknown region falls back as a unit — a substituted zone beside the
- * original languages would just rebuild the mismatch. */
-export function localeFor(region: string): Pick<DeviceProfile, "timeZone" | "languages"> {
-  const timeZone = TIME_ZONES[region];
-  if (!timeZone) return localeFor(FALLBACK_REGION);
-  const lang = region.split("-")[0].toLowerCase();
+/**
+ * The clock and `navigator.languages` a browser here would report, read from the host at mint
+ * time — a real browser reports the machine, not the game region, and this stays coherent with
+ * the IP the requests leave from. Chrome appends the `en-US,en` fallback for non-English UIs.
+ *
+ * That coherence assumes traffic leaves this machine's own IP; per-account proxying would have to
+ * revisit this.
+ */
+function hostLocale(): Pick<DeviceProfile, "timeZone" | "languages"> {
+  const { timeZone, locale } = Intl.DateTimeFormat().resolvedOptions();
+  // Chrome never puts a Unicode extension (`de-DE-u-ca-buddhist`) in `navigator.languages`.
+  const tag = locale.split("-u-")[0];
+  const lang = tag.split("-")[0].toLowerCase();
   return {
     timeZone,
-    languages: lang === "en" ? `${region},${lang}` : `${region},${lang},en-US,en`,
+    languages: lang === "en" ? `${tag},${lang}` : `${tag},${lang},en-US,en`,
   };
 }
 
@@ -142,13 +126,13 @@ const GPUS = [
  * reproduce, and a random value is what stops two accounts reading as the same machine.
  * LAUNCHER_BROWSER_FIELDS stay constant — every genuine launcher is the same CEF build.
  */
-export function generateDeviceProfile(region = FALLBACK_REGION): DeviceProfile {
+export function generateDeviceProfile(): DeviceProfile {
   const { gpu, cores } = GPUS[randomInt(GPUS.length)];
   const [width, height] = SCREENS[randomInt(SCREENS.length)];
   const hex = (): string => randomBytes(32).toString("hex");
   return {
     ...LAUNCHER_BROWSER_FIELDS,
-    ...localeFor(region),
+    ...hostLocale(),
     deviceMemoryGb: DEVICE_MEMORY_GB,
     hardwareConcurrency: cores,
     screenAvailWidth: width,

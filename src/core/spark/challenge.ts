@@ -163,7 +163,7 @@ class CookieJar {
  * `solved`; the caller then retries the original action carrying the `gf-challenge-id`
  * header.
  */
-export async function solveChallenge(challengeId: string, locale = "en-GB"): Promise<void> {
+export async function solveChallenge(challengeId: string, locale: string): Promise<void> {
   const jar = new CookieJar();
   await jar.fetch(referer(challengeId, locale), {
     headers: { "User-Agent": BROWSER_USER_AGENT, Accept: "text/html" },

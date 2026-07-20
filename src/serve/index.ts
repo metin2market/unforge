@@ -18,6 +18,7 @@ import index from "./ui/index.html";
 import { openUi } from "./open-browser.ts";
 import { configureLogging, describeError, openApp, type App } from "../app/index.ts";
 import { errnoCode, stringField } from "../util/index.ts";
+import { uiEvent, uiSnapshot } from "./wire.ts";
 
 const HOST = "127.0.0.1";
 const PORT = 4000;
@@ -59,7 +60,7 @@ export async function serve({
 
   // Push every app event to every open window, so the UI never polls.
   app.subscribe((event) => {
-    const payload = JSON.stringify(event);
+    const payload = JSON.stringify(uiEvent(event));
     for (const ws of clients) ws.send(payload);
   });
 
@@ -74,7 +75,7 @@ export async function serve({
         "/": index,
 
         // One call gives a fresh window everything it renders; the socket keeps it current.
-        "/api/state": { GET: () => json(app.snapshot()) },
+        "/api/state": { GET: () => json(uiSnapshot(app.snapshot())) },
 
         "/api/accounts": {
           // The user brings email + password; `auth.login` authenticates (proving the
@@ -92,7 +93,7 @@ export async function serve({
             } catch (err) {
               return fail(err);
             }
-            return json(app.snapshot());
+            return json(uiSnapshot(app.snapshot()));
           },
         },
 
@@ -103,7 +104,7 @@ export async function serve({
             } catch (err) {
               return fail(err);
             }
-            return json(app.snapshot());
+            return json(uiSnapshot(app.snapshot()));
           },
         },
 

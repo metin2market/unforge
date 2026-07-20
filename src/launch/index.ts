@@ -3,14 +3,12 @@
 // pipe, the method set) is GameForge's design and lives in `core/handoff`; this composes it.
 // See docs/launch.md; the orchestration (auth → handoff → spawn) lives in src/app.
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { buildInvocation, CLIENT_EXE } from "../core/handoff/index.ts";
+import { isRegion, type Region } from "../core/index.ts";
 import { errnoCode, errorMessage } from "../util/index.ts";
-
-/** A GameForge region / client language folder, e.g. "pt-PT". */
-const REGION_RE = /^[a-z]{2}-[A-Z]{2}$/;
 
 /** Expand a leading `~` to the home dir (shells don't always do it for arbitrary args). */
 export function expandHome(p: string): string {
@@ -19,70 +17,90 @@ export function expandHome(p: string): string {
   return p;
 }
 
-const isDir = (p: string): boolean => {
-  try {
-    return statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-};
-
-/**
- * Locate the folder holding `metin2client.exe` under a (possibly imprecise) game dir. Tries,
- * in order: the dir itself; a `<region>` subfolder (the client's per-language layout); then a
- * bounded recursive search, preferring a hit whose path mentions the region and otherwise the
- * shallowest. Expands a leading `~`. Throws a clear error if nothing is found.
- */
-export function findClientDir(gameDir: string, region?: string, maxDepth = 4): string {
+/** The existing dir a game path names, `~` expanded. Throws if it isn't there. */
+function resolveBase(gameDir: string): string {
   const base = expandHome(gameDir);
   if (!existsSync(base)) throw new Error(`game dir does not exist: ${base}`);
-  if (existsSync(join(base, CLIENT_EXE))) return base;
-  if (region && existsSync(join(base, region, CLIENT_EXE))) return join(base, region);
+  return base;
+}
 
+/** The shortest path — a stand-in for the least-nested install, when there is nothing better to
+ * prefer. Not strictly depth: a long folder name can outweigh a segment. */
+const shallowest = (hits: string[]): string =>
+  hits.reduce((best, h) => (h.length < best.length ? h : best));
+
+/** Every folder holding the client exe under `base`, depth-bounded. */
+function clientDirsUnder(base: string, maxDepth: number): string[] {
   const hits: string[] = [];
   const walk = (dir: string, depth: number): void => {
-    let entries: string[];
+    let entries: Dirent[];
     try {
-      entries = readdirSync(dir);
+      // `withFileTypes` over a stat per entry: a Metin2 install is thousands of files.
+      entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       return; // unreadable dir — skip
     }
-    if (entries.includes(CLIENT_EXE)) hits.push(dir);
+    if (entries.some((e) => e.name === CLIENT_EXE)) hits.push(dir);
     if (depth >= maxDepth) return;
     for (const e of entries) {
-      const p = join(dir, e);
-      if (isDir(p)) walk(p, depth + 1);
+      if (e.isDirectory()) walk(join(dir, e.name), depth + 1);
     }
   };
   walk(base, 0);
-
   if (hits.length === 0) throw new Error(`${CLIENT_EXE} not found under ${base}`);
-  const byRegion = region
-    ? hits.find((h) => h.toLowerCase().includes(region.toLowerCase()))
-    : undefined;
-  return byRegion ?? hits.toSorted((a, b) => a.length - b.length)[0];
+  return hits;
 }
 
-/** A discovered client install: the dir holding the exe, and its region if the folder names it. */
+/**
+ * Locate the folder holding `metin2client.exe` for a region, under a (possibly imprecise) game
+ * dir. Tries the dir itself, then a `<region>` subfolder, then a bounded recursive search
+ * preferring a hit whose path names the region. Expands `~`; throws if nothing is found.
+ *
+ * `region` is required — preferring its folder over the box's other installs is the whole job.
+ */
+export function findClientDir(gameDir: string, region: Region, maxDepth = 4): string {
+  const base = resolveBase(gameDir);
+  if (existsSync(join(base, CLIENT_EXE))) return base;
+  if (existsSync(join(base, region, CLIENT_EXE))) return join(base, region);
+
+  const hits = clientDirsUnder(base, maxDepth);
+  const byRegion = hits.find((h) => h.toLowerCase().includes(region.toLowerCase()));
+  return byRegion ?? shallowest(hits);
+}
+
+/**
+ * Locate a client dir when no region is known yet — `config set game-dir` discovering what's on
+ * the box. Takes the shallowest hit, since there is nothing to prefer.
+ */
+export function findClientDirAnywhere(gameDir: string, maxDepth = 4): string {
+  const base = resolveBase(gameDir);
+  if (existsSync(join(base, CLIENT_EXE))) return base;
+  return shallowest(clientDirsUnder(base, maxDepth));
+}
+
+/**
+ * A discovered client install. `region` is absent when the folder name doesn't name one — the
+ * caller must then supply it, since a game dir is stored under its region and there is nothing
+ * to guess from.
+ */
 export interface DiscoveredClient {
-  region?: string;
+  region?: Region;
   dir: string;
 }
 
 /**
  * Discover client install dir(s) under a (possibly imprecise) path — for `config set game-dir`,
- * so what's stored is the resolved location. Expands `~`. If the path is a language dir
- * (`…/pt-PT`) it scans the PARENT so sibling languages are filled too; each language folder
+ * so what's stored is the resolved location. Expands `~`. If the path is a region dir
+ * (`…/pt-PT`) it scans the PARENT so sibling regions are filled too; each region folder
  * holding the exe becomes an entry. Falls back to a recursive search (region unknown) when no
- * language-named folders are present.
+ * region-named folders are present.
  */
 export function discoverGameDirs(gamePath: string): DiscoveredClient[] {
-  const base = expandHome(gamePath);
-  if (!existsSync(base)) throw new Error(`game dir does not exist: ${base}`);
+  const base = resolveBase(gamePath);
 
-  // A language dir → scan its parent to catch sibling languages; otherwise scan the dir.
+  // A region dir → scan its parent to catch sibling regions; otherwise scan the dir.
   const root =
-    existsSync(join(base, CLIENT_EXE)) && REGION_RE.test(basename(base)) ? dirname(base) : base;
+    existsSync(join(base, CLIENT_EXE)) && isRegion(basename(base)) ? dirname(base) : base;
 
   const found: DiscoveredClient[] = [];
   let entries: string[] = [];
@@ -92,16 +110,17 @@ export function discoverGameDirs(gamePath: string): DiscoveredClient[] {
     // fall through to the recursive fallback
   }
   for (const e of entries.toSorted()) {
-    if (REGION_RE.test(e) && existsSync(join(root, e, CLIENT_EXE))) {
+    if (isRegion(e) && existsSync(join(root, e, CLIENT_EXE))) {
       found.push({ region: e, dir: join(root, e) });
     }
   }
   if (found.length > 0) return found;
 
-  // No language-named folders — search, inferring the region from the folder name if it fits.
-  const dir = findClientDir(base);
+  // No region-named folders — search the whole tree (no region to prefer), then infer one from
+  // the folder name if it fits.
+  const dir = findClientDirAnywhere(base);
   const b = basename(dir);
-  return [{ region: REGION_RE.test(b) ? b : undefined, dir }];
+  return [{ region: isRegion(b) ? b : undefined, dir }];
 }
 
 export interface SpawnClientOptions {

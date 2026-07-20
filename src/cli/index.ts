@@ -5,7 +5,7 @@
 //
 // Command surface (see docs/cli.md):
 //   launch [game-account]            auth + spawn the client (picks if omitted) — the whole point
-//   account list | create | code     game accounts — the everyday noun
+//   account list | sync | create | code   game accounts — the everyday noun
 //   auth   register                  create a GameForge account (solves the captcha) + record it
 //   auth   login | list | logout     GameForge accounts — set up once, then forgotten
 //   auth   alias <gf> [alias]        set/clear a GameForge account's short handle
@@ -16,12 +16,12 @@
 import { Command } from "commander";
 import { getLogger } from "@logtape/logtape";
 import { VERSION } from "../index.ts";
-import { UnexpectedResponseError } from "../core/index.ts";
-import { describeError } from "../app/index.ts";
+import { assertRegion, knownRegions, UnexpectedResponseError, type Region } from "../core/index.ts";
+import { describeError, regionLabel } from "../app/index.ts";
 import type { GfAccount } from "../storage/index.ts";
 import { detachOwnConsole } from "./hide-console.ts";
 import { askConfirm, askPassword, askText } from "./prompts.ts";
-import { pickGameAccount, pickGfAccount } from "./pick.ts";
+import { pickGameAccount, pickGfAccount, pickRegion } from "./pick.ts";
 
 // Status/progress/errors go through the logger (stderr + the redacted file trail); command
 // *results* — codes, lists, device reports — stay on `console.log` (stdout) so they pipe
@@ -121,10 +121,7 @@ program
 // ── launch (top-level, the hot path) ────────────────────────────────────────────
 program
   .command("launch")
-  .argument(
-    "[game-account]",
-    "game account to launch (username, display name, or id; picks if omitted)",
-  )
+  .argument("[game-account]", "game account to launch (display name or id; picks if omitted)")
   .description("Auth + spawn the game client into a game account (Windows)")
   .action(
     run(async (ref: string | undefined) => {
@@ -137,8 +134,8 @@ program
           ? ` — pid ${launch.pid}`
           : "";
       log.info("launched {name} ({region}){how}", {
-        name: launch.account.displayName ?? launch.account.username,
-        region: launch.account.region,
+        name: launch.account.displayName,
+        region: regionLabel(launch.account.accountGroup),
         how,
       });
       log.info("game dir: {dir}", { dir: launch.gameDir });
@@ -175,13 +172,25 @@ account
       const a = await app();
       const rows = a.accounts.list(opts.gf);
       if (rows.length === 0) {
-        console.log("no game accounts — run `unforge auth login` first");
+        console.log("no game accounts — run `unforge account sync` to fetch them from GameForge");
         return;
       }
       for (const r of rows) {
-        console.log(
-          `${r.displayName ?? r.username}  [${r.region}]  ${r.username}  ·  ${r.gfEmail}`,
-        );
+        console.log(`${r.displayName}  [${regionLabel(r.accountGroup)}]  ·  ${r.gfEmail}`);
+      }
+    }),
+  );
+
+account
+  .command("sync")
+  .description("Re-fetch game accounts from GameForge and replace what's stored")
+  .option("--gf <gf>", "only this GameForge account (email, handle, or id; omit for all)")
+  .action(
+    run(async (opts: { gf?: string }) => {
+      const a = await app();
+      const rows = await a.accounts.sync(opts.gf);
+      for (const r of rows) {
+        console.log(`${r.displayName}  [${regionLabel(r.accountGroup)}]  ·  ${r.gfEmail}`);
       }
     }),
   );
@@ -191,19 +200,35 @@ account
   .argument("[display-name]", "display name for the new game account (prompted if omitted)")
   .description("Create a game account under a GameForge login (solves the captcha if one fires)")
   .option("--gf <gf>", "GameForge account to create it under (email, handle, or id; omit to pick)")
-  .option("--region <region>", "region to create it in — permanent (default pt-PT)")
+  .option(
+    "--region <region>",
+    `region to create it in — permanent; asks when several clients (${knownRegions().join(", ")})`,
+  )
   .action(
     run(async (displayName: string | undefined, opts: { gf?: string; region?: string }) => {
       const a = await app();
+      // argv is where a region stops being an arbitrary string — refuse here, before anything is
+      // chosen, so the app below takes a `Region` and never re-checks one.
+      let explicit: Region | undefined;
+      if (opts.region !== undefined) {
+        assertRegion(opts.region);
+        explicit = opts.region;
+      }
       // Choose the owning login first (flag, sole account, or picker), then the name.
       const gf = opts.gf ?? (await pickGfAccount(a.auth.list()));
       const name = displayName ?? (await askText("Game account name"));
       if (!name) throw new Error("a display name is required");
+      // Announced either way, inferred or picked — the choice is permanent.
+      const region = explicit ?? (await pickRegion(a.config.regions()));
+      log.info("creating {name} in {region} — permanent, and the only region it can be played in", {
+        name,
+        region,
+      });
 
-      const created = await a.accounts.create({ displayName: name, gf, region: opts.region });
+      const created = await a.accounts.create({ displayName: name, gf, region });
       log.info("created {name} [{region}] under {gf}", {
-        name: created.displayName ?? created.username,
-        region: created.region,
+        name: created.displayName,
+        region: regionLabel(created.accountGroup),
         gf: created.gfEmail,
       });
     }),
@@ -211,7 +236,7 @@ account
 
 account
   .command("code")
-  .argument("<game-account>", "game account (username, display name, or id)")
+  .argument("<game-account>", "game account (display name or id)")
   .description("Mint + print a one-time login code (test / diagnostic)")
   .action(
     run(async (ref: string) => {
@@ -234,7 +259,10 @@ function reportAccount(verb: string, gf: GfAccount): void {
     count: gf.gameAccounts.length,
   });
   for (const g of gf.gameAccounts) {
-    log.info("  {name}  [{region}]", { name: g.displayName ?? g.username, region: g.region });
+    log.info("  {name}  [{region}]", {
+      name: g.displayName,
+      region: regionLabel(g.accountGroup),
+    });
   }
 }
 
@@ -254,14 +282,12 @@ auth
   .option("--email <email>", "GameForge account email")
   .option("--password <password>", "GameForge account password (prompted if omitted)")
   .option("--alias <alias>", "short handle to store for this account (else derived from the email)")
-  .option("--region <region>", "region stamped on discovered game accounts (default pt-PT)")
   .action(
-    run(async (opts: { email?: string; password?: string; alias?: string; region?: string }) => {
+    run(async (opts: { email?: string; password?: string; alias?: string }) => {
       const a = await app();
       const registered = await a.auth.register({
         ...(await credentials(opts)),
         alias: opts.alias,
-        region: opts.region,
       });
       reportAccount("registered", registered);
       // GF won't issue a play code until the email is verified — the account can log in and
@@ -278,14 +304,12 @@ auth
   .option("--email <email>", "GameForge account email")
   .option("--password <password>", "GameForge account password (prompted if omitted)")
   .option("--alias <alias>", "short handle to store for this account (else derived from the email)")
-  .option("--region <region>", "region for discovered game accounts (default pt-PT)")
   .action(
-    run(async (opts: { email?: string; password?: string; alias?: string; region?: string }) => {
+    run(async (opts: { email?: string; password?: string; alias?: string }) => {
       const a = await app();
       const loggedIn = await a.auth.login({
         ...(await credentials(opts)),
         alias: opts.alias,
-        region: opts.region,
       });
       reportAccount("authenticated", loggedIn);
     }),
@@ -399,22 +423,24 @@ const configSet = config.command("set").description("Set a config value");
 
 configSet
   .command("game-dir")
-  .argument("<path>", "game install path — the root or a language dir (metin2client.exe is found)")
+  .argument("<path>", "game install path — the root or a region dir (metin2client.exe is found)")
   .option("--region <region>", "region, when it can't be inferred from the folder name")
-  .description("Set the game-client dir(s) — resolves the exe and fills each language found")
+  .description("Set the game-client dir(s) — resolves the exe and fills each region found")
   .action(
     run(async (path: string, opts: { region?: string }) => {
       const { discoverGameDirs } = await import("../launch/index.ts");
       const found = discoverGameDirs(path);
       const a = await app();
-      for (const f of found) {
-        const region = f.region ?? opts.region;
-        if (!region) {
-          throw new Error(`could not infer a region for ${f.dir} — pass --region <region>`);
-        }
-        await a.config.setGameDir(region, f.dir);
-        log.info("game-dir[{region}] = {dir}", { region, dir: f.dir });
-      }
+      const entries = found.map(({ region, dir }): [Region, string] => {
+        const r = region ?? opts.region;
+        if (!r) throw new Error(`could not infer a region for ${dir} — pass --region <region>`);
+        assertRegion(r);
+        return [r, dir];
+      });
+      // Resolved first, written once: a path that names an unknown region shouldn't leave the
+      // earlier folders of the same scan already committed.
+      await a.config.setGameDirs(entries);
+      for (const [region, dir] of entries) log.info("game-dir[{region}] = {dir}", { region, dir });
     }),
   );
 
@@ -424,8 +450,8 @@ config
   .action(
     run(async () => {
       const a = await app();
-      const { gameDirs } = a.snapshot();
-      const regions = Object.keys(gameDirs);
+      const gameDirs = a.config.gameDirs();
+      const regions = a.config.regions();
       if (regions.length === 0) {
         console.log("game-dirs: —");
         return;

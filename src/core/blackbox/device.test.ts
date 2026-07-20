@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { generateDeviceProfile, LAUNCHER_BROWSER_FIELDS, localeFor } from "./device.ts";
+import { generateDeviceProfile, LAUNCHER_BROWSER_FIELDS } from "./device.ts";
 
 test("generateDeviceProfile keeps the launcher-constant fields", () => {
   const p = generateDeviceProfile();
@@ -13,20 +13,13 @@ test("generateDeviceProfile keeps the launcher-constant fields", () => {
   expect(p.pluginsHash).toBe(LAUNCHER_BROWSER_FIELDS.pluginsHash);
 });
 
-test("the clock and languages follow the region, not a constant", () => {
-  // A machine on a Portuguese IP reporting a London clock and en-GB is a geo mismatch — the
-  // exact inconsistency a fixed constant produced.
-  expect(localeFor("pt-PT")).toEqual({
-    timeZone: "Europe/Lisbon",
-    languages: "pt-PT,pt,en-US,en",
-  });
-  expect(localeFor("de-DE").timeZone).toBe("Europe/Berlin");
-  // An English locale has no en fallback to append.
-  expect(localeFor("en-GB").languages).toBe("en-GB,en");
-  // An unknown region falls back *whole*: keeping its languages beside a substituted zone would
-  // just rebuild the mismatch — "xx-XX" spoken on a Lisbon clock is no more coherent.
-  expect(localeFor("xx-XX")).toEqual(localeFor("pt-PT"));
-  expect(generateDeviceProfile("de-DE").timeZone).toBe("Europe/Berlin");
+test("the clock and languages come from the host", () => {
+  const { timeZone, locale } = Intl.DateTimeFormat().resolvedOptions();
+  const p = generateDeviceProfile();
+  expect(p.timeZone).toBe(timeZone);
+  // `navigator.languages`: the full tag, its bare language, then Chrome's en fallback for a
+  // non-English UI. A tag with no zone beside it is the mismatch the host read avoids.
+  expect(p.languages.startsWith(`${locale},${locale.split("-")[0].toLowerCase()}`)).toBe(true);
 });
 
 test("a profile describes a machine that could exist", () => {

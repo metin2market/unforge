@@ -1,6 +1,6 @@
 // An authenticated GameForge session — where core's Spark calls become workflows.
 //
-// It binds what every call needs (the bearer token, the device, the region/locale/cert
+// It binds what every call needs (the bearer token, the device, the cert
 // policy) once, so no step restates it, and it owns the rule that is easiest to get wrong:
 // **every privileged call sends its own fresh, vector-advanced blackbox**. Reusing one
 // across `sessions` + `iovation` was the long-standing "clientless is blocked" bug. No
@@ -16,11 +16,13 @@ import {
   createBlackboxSequence,
   createGameAccount,
   createGfAccount,
+  assertRegion,
   createSession,
+  codeRefusal,
   DEFAULT_CLIENT_VERSION,
+  groupForRegion,
   listGameAccounts,
   logout,
-  regionMismatch as codeRegionMismatch,
   requestLoginCode,
   type BlackboxSequence,
   type ClientVersion,
@@ -28,17 +30,23 @@ import {
   type Credentials,
   type GameAccount,
   type LoginCode,
+  type Region,
 } from "../core/index.ts";
 import type { Device } from "../storage/index.ts";
 
 const log = getLogger(["unforge", "spark"]);
 
-/** Policy applied to every call on the session — bound once, never per-step. */
+/**
+ * The GF interface locale: error text and the captcha page. A captured launcher constant, not a
+ * setting — see docs/cli.md on why it isn't derived from a region.
+ */
+const GF_LOCALE = "en-GB";
+
+/**
+ * Policy applied to every call on the session — bound once, never per-step. No region and no
+ * locale: a region belongs to one game account, so every call that needs one takes it.
+ */
 export interface GfSessionPolicy {
-  /** GF locale, `^[a-z]{2}-[A-Z]{2}$`. */
-  locale: string;
-  /** Server region for a minted code's `gameId`, e.g. "pt-PT". */
-  region: string;
   /** The launcher's client-cert PEM, for the `thin/codes` account-hash UA. */
   certificatePem: string;
   clientVersion?: ClientVersion;
@@ -54,9 +62,12 @@ export interface GfSession {
    * Create a game account under this login — the multibox lever. `region` is where the account
    * will live permanently, and the only region it can later be launched in.
    */
-  createGameAccount(displayName: string, opts?: { region?: string }): Promise<CreatedGameAccount>;
-  /** Attest the device, then mint a one-time login code for one game account. */
-  mintCode(account: GameAccount, opts?: { region?: string }): Promise<LoginCode>;
+  createGameAccount(displayName: string, region: Region): Promise<CreatedGameAccount>;
+  /**
+   * Attest the device, then mint a one-time login code for one game account. Refuses a region
+   * the account doesn't live in without calling GameForge — see {@link CodeNotAllowedError}.
+   */
+  mintCode(account: GameAccount, region: Region): Promise<LoginCode>;
   /** Invalidate the session server-side. Best-effort. */
   close(): Promise<void>;
 }
@@ -79,19 +90,16 @@ function session(
       return listGameAccounts(token, installationId);
     },
 
-    createGameAccount(displayName, opts = {}) {
-      // The region an account is *created in* is the region it can be played in, forever — GF
-      // files it under the group and `thin/codes` is then only valid there. So it has to come
-      // from the caller's choice, not a process-wide default.
-      const accountRegion = opts.region ?? policy.region;
-      // GF wants the bare group ("pt"), not the region tag ("pt-PT"), in two fields.
-      // NOTE: this is the region→group direction, where the subtag is right for every group
-      // Metin2 uses. The reverse needs a translation table (see refs.ts CLIENT_LOCALE) — a
-      // `da-DK` region would have to be created as group `dk`, which this does not yet handle.
-      const accountGroup = accountRegion.split("-")[0].toLowerCase();
+    // `async` so the guard rejects rather than throwing synchronously, as `mintCode`'s does.
+    async createGameAccount(displayName, region) {
+      // GF files by group ("pt"), not region tag ("pt-PT") — always through the table, never by
+      // splitting the tag (core/regions.ts). The guard is for JavaScript callers: `openGfSession`
+      // is public API and a creation is permanent.
+      assertRegion(region);
+      const accountGroup = groupForRegion(region);
       log.debug("users/me/accounts: creating '{displayName}' in {region} [{accountGroup}]", {
         displayName,
-        region: accountRegion,
+        region,
         accountGroup,
       });
       return createGameAccount({
@@ -99,33 +107,30 @@ function session(
         installationId,
         displayName,
         blackbox: blackbox.next(),
+        // The launcher sends the group in both fields; they are different dimensions that
+        // coincide for Metin2's communities (see CreateGameAccountOptions.gfLang).
         gfLang: accountGroup,
         accountGroup,
-        // Only the captcha's language if a PoW fires — unrelated to where the account lives.
-        locale: policy.locale,
+        // Only the captcha's language if a PoW fires — unrelated to where the account lives,
+        // but the region is a valid locale and the language whoever is creating it reads.
+        locale: region,
       });
     },
 
-    async mintCode(account, opts = {}) {
+    async mintCode(account, region) {
       const sessionId = crypto.randomUUID();
-      const region = opts.region ?? policy.region;
 
-      // The two states that make `thin/codes` fail for a reason its 403 never names. Logged
-      // before the call, so the redacted trail says *why* without anyone opening the trace.
+      // The one refusal readable from the account, and a refusal may arm the per-login cooldown
+      // (docs/protocol.md) — so it's decided off the wire. Core owns the question and the error,
+      // so a local refusal is indistinguishable from GameForge's.
+      const refusal = codeRefusal(account, region);
+      if (refusal) throw refusal;
+      // Not ours to refuse — GF sometimes still mints for a pre-deleted account — but the
+      // redacted trail should say why if it doesn't.
       if (account.retired) {
         log.warning("'{name}' is deleted or pending deletion — GameForge won't allow a code", {
           name: account.displayName,
         });
-      }
-      if (codeRegionMismatch(region, account.accountGroup)) {
-        log.warning(
-          "'{name}' is in group '{accountGroup}' but we're asking for region '{region}'",
-          {
-            name: account.displayName,
-            accountGroup: account.accountGroup,
-            region,
-          },
-        );
       }
 
       log.debug("iovation: attesting device");
@@ -176,7 +181,7 @@ export async function openGfSession(
     ...credentials,
     installationId: device.installationId,
     blackbox: blackbox.next(),
-    locale: policy.locale,
+    locale: GF_LOCALE,
   });
   return session(token, device, blackbox, policy);
 }
@@ -198,7 +203,7 @@ export async function registerGfSession(
     ...credentials,
     installationId: device.installationId,
     blackbox: blackbox.next(),
-    locale: policy.locale,
+    locale: GF_LOCALE,
   });
 
   log.debug("sessions: authenticating the new account");
@@ -206,7 +211,7 @@ export async function registerGfSession(
     ...credentials,
     installationId: device.installationId,
     blackbox: blackbox.next(),
-    locale: policy.locale,
+    locale: GF_LOCALE,
   });
   return session(token, device, blackbox, policy);
 }

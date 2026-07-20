@@ -12,15 +12,18 @@ import { Device } from "./device.ts";
 import { unforgeDataFile } from "./paths.ts";
 import { sealSecret, unsealSecret } from "./seal.ts";
 
-/** A game account under a GF login — no secrets. */
+/**
+ * A game account under a GF login — no secrets. GameForge's fields under GameForge's names,
+ * stored verbatim: nothing derived, so nothing can drift. The region (`pt-PT`) is a lookup
+ * from `accountGroup` (core/regions.ts).
+ */
 export const StoredGameAccount = z.object({
+  /** GF spells this `id`, `accountId` and `platformGameAccountId` across its responses. */
   accountId: z.string(),
-  username: z.string(),
-  /** Friendly name from `/user/accounts` (`displayName`); the everyday ref for launch. */
-  displayName: z.string().optional(),
-  region: z.string(),
-  server: z.string().optional(),
-  character: z.string().optional(),
+  /** What the launcher shows as the game account's name, and what you type to refer to it. */
+  displayName: z.string(),
+  /** Where the account plays ("pt", "tr") */
+  accountGroup: z.string(),
 });
 export type StoredGameAccount = z.infer<typeof StoredGameAccount>;
 
@@ -42,7 +45,8 @@ export const StoredGfAccount = z.object({
   email: z.string(),
   /** Short human handle for refs/pickers. Absent → a handle is derived from the email. */
   alias: z.string().optional(),
-  gameAccounts: z.array(StoredGameAccount),
+  /** A cache of GameForge's own list, so a stale shape empties rather than refuses — `account sync` refills it. */
+  gameAccounts: z.array(StoredGameAccount).catch([]),
   /** Epoch-ms metadata for debugging which account was added/ran when. */
   createdAt: z.number(),
   lastUsedAt: z.number().optional(),
@@ -55,9 +59,9 @@ export const StoredGfAccount = z.object({
 export type StoredGfAccount = z.infer<typeof StoredGfAccount>;
 
 /**
- * The whole persisted set. No schema version: unforge isn't released, so a shape change means
- * deleting the store and logging in again rather than carrying migration code forever — which
- * only works if a stale shape is *detected*, hence the schema.
+ * The whole persisted set. No schema version and no migrations: unforge isn't released, so a stale
+ * shape means logging in again — which only works if it's *detected*, hence the schema. Per field,
+ * what a reset costs decides: re-fetchable data defaults, data that exists only here refuses.
  */
 export const StoreState = z.object({
   accounts: z.array(StoredGfAccount),

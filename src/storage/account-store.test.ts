@@ -22,14 +22,14 @@ test("add → get roundtrips secrets and device", async () => {
     email: "scanner@example.com",
     password: "s3cr3t · pä$$",
     device,
-    gameAccounts: [{ accountId: "acc-1", username: "hero", region: "pt-PT", server: "Rubinum" }],
+    gameAccounts: [{ accountId: "acc-1", displayName: "hero", accountGroup: "pt" }],
   });
 
   const got = store.get(id);
   expect(got?.secrets.password).toBe("s3cr3t · pä$$");
   expect(got?.secrets.device).toEqual(device);
   expect(got?.gameAccounts).toHaveLength(1);
-  expect(got?.gameAccounts[0]?.username).toBe("hero");
+  expect(got?.gameAccounts[0]?.displayName).toBe("hero");
   expect(got?.secrets.token).toBeUndefined();
 });
 
@@ -57,10 +57,10 @@ test("everything is encrypted at rest — no plaintext in the file", async () =>
   await store.add({
     email: "scanner@example.com",
     password: "SUPER_SECRET_PW",
-    gameAccounts: [{ accountId: "a1", username: "MyHero", region: "pt-PT", server: "Rubinum" }],
+    gameAccounts: [{ accountId: "a1", displayName: "MyHero", accountGroup: "pt" }],
   });
   const bytes = readFileSync(path).toString("latin1");
-  for (const plaintext of ["scanner@example.com", "SUPER_SECRET_PW", "MyHero", "Rubinum"]) {
+  for (const plaintext of ["scanner@example.com", "SUPER_SECRET_PW", "MyHero"]) {
     expect(bytes.includes(plaintext)).toBe(false);
   }
 });
@@ -111,7 +111,7 @@ test("remove deletes the account", async () => {
   const { id } = await store.add({
     email: "a@example.com",
     password: "pw",
-    gameAccounts: [{ accountId: "acc-1", username: "hero", region: "pt-PT" }],
+    gameAccounts: [{ accountId: "acc-1", displayName: "hero", accountGroup: "pt" }],
   });
   await store.remove(id);
   expect(store.list()).toHaveLength(0);

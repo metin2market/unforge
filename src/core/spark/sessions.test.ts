@@ -19,7 +19,8 @@ const opts = {
   password: "pw",
   blackbox: "tra:AAAA",
   installationId: "5814f474-9054-4215-99fe-9a30baf46370",
-};
+  locale: "pt-PT",
+} as const;
 
 describe("createSession response handling", () => {
   test("201 → returns the bearer token", async () => {

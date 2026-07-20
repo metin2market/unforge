@@ -62,7 +62,8 @@ exactly what the Go libs do: `alaingilbert` persists a device under
 "Plausible" is a stronger requirement than it sounds, and it constrains _how_ the fields are
 generated, not just their shape — the values have to be mutually consistent, because on real
 hardware they are not independent. `device.ts` builds a whole machine rather than picking each
-field separately, takes the clock and languages from the account's region, and respects the limits
+field separately, reads the clock and languages off the host (a real browser reports the machine it
+runs on, not the game region — and that keeps them consistent with the IP for free), and respects the limits
 the browser itself imposes (`navigator.deviceMemory` is spec-clamped to ≤ 8, so a "32 GB" device is
 not implausible but impossible). What this does _not_ solve is in
 [red-bar.md](./red-bar.md#what-unforge-does-instead).

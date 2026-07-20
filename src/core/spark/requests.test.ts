@@ -14,6 +14,7 @@ import type { GameAccount } from "../types.ts";
 const INSTALL = "5814f474-9054-4215-99fe-9a30baf46370"; // any UUID with a digit
 const TOKEN = "e4839df5-7906-4450-badc-46c0df84af31";
 const BB = "tra:AAAAExampleRawBlackbox";
+const LOCALE = "pt-PT";
 
 const account: GameAccount = {
   id: "abcd1234-0000-0000-0000-000000000000",
@@ -22,6 +23,7 @@ const account: GameAccount = {
   usernames: ["test"],
   gameId: METIN2_GAME_ID,
   gameName: "metin2",
+  accountGroup: "pt",
   retired: false,
 };
 
@@ -32,6 +34,7 @@ describe("buildSessionRequest", () => {
       password: "pw",
       blackbox: BB,
       installationId: INSTALL,
+      locale: LOCALE,
     });
     expect(req.method).toBe("POST");
     expect(req.url).toBe("https://spark.gameforge.com/api/v2/authProviders/credentials/sessions");
@@ -41,31 +44,21 @@ describe("buildSessionRequest", () => {
     expect(JSON.parse(req.body!)).toEqual({
       email: "a@b.c",
       password: "pw",
-      locale: "en-GB",
+      locale: LOCALE,
       blackbox: BB,
     });
   });
 
-  test("locale defaults to en-GB (hyphen form GF requires) and is overridable", () => {
-    const dflt = JSON.parse(
-      buildSessionRequest({
-        email: "a@b.c",
-        password: "pw",
-        blackbox: BB,
-        installationId: INSTALL,
-      }).body!,
+  test("sends the locale it was given — there is no default to fall back on", () => {
+    // A defaulted locale would be ours, not GameForge's, and would silently disagree with the
+    // one the caller bound for the rest of the login. Every call states it.
+    const creds = { email: "a@b.c", password: "pw", blackbox: BB, installationId: INSTALL };
+    expect(JSON.parse(buildSessionRequest({ ...creds, locale: "pt-PT" }).body!).locale).toBe(
+      "pt-PT",
     );
-    expect(dflt.locale).toBe("en-GB");
-    const pt = JSON.parse(
-      buildSessionRequest({
-        email: "a@b.c",
-        password: "pw",
-        blackbox: BB,
-        installationId: INSTALL,
-        locale: "pt-PT",
-      }).body!,
+    expect(JSON.parse(buildSessionRequest({ ...creds, locale: "en-GB" }).body!).locale).toBe(
+      "en-GB",
     );
-    expect(pt.locale).toBe("pt-PT");
   });
 });
 
@@ -99,12 +92,15 @@ describe("buildAttestRequest", () => {
 });
 
 describe("buildCreateAccountRequest", () => {
-  test("POSTs v2 users/me/accounts; Metin2 ids + pt defaults", () => {
+  test("POSTs v2 users/me/accounts with Metin2's ids and the caller's group", () => {
     const req = buildCreateAccountRequest({
       token: TOKEN,
       installationId: INSTALL,
       displayName: "alt1",
       blackbox: BB,
+      gfLang: "pt",
+      accountGroup: "pt",
+      locale: LOCALE,
     });
     expect(req.url).toBe("https://spark.gameforge.com/api/v2/users/me/accounts");
     const body = JSON.parse(req.body!);
@@ -112,6 +108,21 @@ describe("buildCreateAccountRequest", () => {
     expect(body.gfLang).toBe("pt");
     expect(body.accountGroup).toBe("pt");
     expect(body.blackbox).toBe(BB);
+  });
+
+  test("sends the group it was given — there is no default to fall back on", () => {
+    // Where the account lives is permanent, so a defaulted group would file it somewhere the
+    // caller never asked for and could not undo.
+    const req = buildCreateAccountRequest({
+      token: TOKEN,
+      installationId: INSTALL,
+      displayName: "alt1",
+      blackbox: BB,
+      gfLang: "dk",
+      accountGroup: "dk",
+      locale: LOCALE,
+    });
+    expect(JSON.parse(req.body!).accountGroup).toBe("dk");
   });
 });
 
@@ -124,7 +135,7 @@ describe("buildCodeRequest", () => {
     certificatePem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
     sessionId: "4f6b7f5a-ffcf-419a-a7be-f32422f7c1af",
     rawBlackbox: BB,
-    region: "pt-PT",
+    region: "pt-PT" as const,
     gsid: "4f6b7f5a-ffcf-419a-a7be-f32422f7c1af-5487",
   };
 

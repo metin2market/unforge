@@ -2,58 +2,20 @@
 // gives HMR) with zero config beyond `jsx: react-jsx` in tsconfig.
 //
 // State comes from the app in two pieces: `GET /api/state` once on mount, then every
-// change as an `AppEvent` over the socket. Nothing polls, and the UI keeps no derived
+// change as a `UiAppEvent` over the socket. Nothing polls, and the UI keeps no derived
 // state of its own — a launch's status is whatever the last event said it was.
 
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { isRecord } from "../../util/index.ts";
-
-interface GameAccount {
-  accountId: string;
-  username: string;
-  displayName?: string;
-  region: string;
-}
-
-interface GfAccount {
-  id: string;
-  email: string;
-  alias?: string;
-  gameAccounts: GameAccount[];
-  createdAt: number;
-  lastUsedAt?: number;
-  tokenExpiresAt?: number;
-}
-
-type LaunchStatus =
-  | "authenticating"
-  | "spawning"
-  | "awaiting-client"
-  | "connected"
-  | "logged-in"
-  | "failed";
-
-interface Launch {
-  id: string;
-  accountRef: string;
-  account: GameAccount;
-  status: LaunchStatus;
-  pid?: number;
-  elevated: boolean;
-  startedAt: number;
-  error?: string;
-}
-
-interface Snapshot {
-  accounts: GfAccount[];
-  launches: Launch[];
-}
-
-type AppEvent = { type: "accounts"; accounts: GfAccount[] } | { type: "launch"; launch: Launch };
+// Type-only, so nothing but erased types reaches the browser bundle — and the wire contract stops
+// being a hand-copy that can drift silently into rendering `undefined`. The server renders the
+// region (see wire.ts), so this file needs no GameForge knowledge at all.
+import type { LaunchState, LaunchStatus } from "../../app/index.ts";
+import type { UiAppEvent, UiGameAccount, UiGfAccount, UiSnapshot } from "../wire.ts";
 
 /** The store knows only whether a cached session is still good — that's the persisted state. */
-function sessionLabel(acc: GfAccount): string {
+function sessionLabel(acc: UiGfAccount): string {
   if (!acc.tokenExpiresAt) return "no session";
   return acc.tokenExpiresAt > Date.now() ? "session valid" : "session expired";
 }
@@ -75,31 +37,32 @@ function badgeClass(status: LaunchStatus): string {
 }
 
 /** A launch is over — for the button — once it's in game or has given up. */
-const isSettled = (l: Launch): boolean => l.status === "logged-in" || l.status === "failed";
+const isSettled = (l: LaunchState): boolean => l.status === "logged-in" || l.status === "failed";
 
 function GameAccountRow({
-  game,
+  gameAccount,
   launch,
   onLaunch,
 }: {
-  game: GameAccount;
-  launch?: Launch;
-  onLaunch: (game: GameAccount) => void;
+  gameAccount: UiGameAccount;
+  launch?: LaunchState;
+  onLaunch: (gameAccount: UiGameAccount) => void;
 }) {
   return (
     <div className="row">
       <div className="row-main">
-        <div className="email">{game.displayName ?? game.username}</div>
-        <div className="server">
-          {game.username} · {game.region}
-        </div>
+        <div className="email">{gameAccount.displayName}</div>
+        <div className="server">{gameAccount.region}</div>
         {launch?.error && <div className="detail">{launch.error}</div>}
         {launch?.elevated && !launch.error && (
           <div className="detail">approve the UAC prompt to continue</div>
         )}
       </div>
       {launch && <span className={badgeClass(launch.status)}>{STATUS_LABEL[launch.status]}</span>}
-      <button disabled={launch !== undefined && !isSettled(launch)} onClick={() => onLaunch(game)}>
+      <button
+        disabled={launch !== undefined && !isSettled(launch)}
+        onClick={() => onLaunch(gameAccount)}
+      >
         Launch
       </button>
     </div>
@@ -112,10 +75,10 @@ function AccountGroup({
   onLaunch,
   onRemove,
 }: {
-  acc: GfAccount;
-  launches: Launch[];
-  onLaunch: (game: GameAccount) => void;
-  onRemove: (acc: GfAccount) => void;
+  acc: UiGfAccount;
+  launches: LaunchState[];
+  onLaunch: (gameAccount: UiGameAccount) => void;
+  onRemove: (acc: UiGfAccount) => void;
 }) {
   return (
     <section className="accounts">
@@ -133,12 +96,12 @@ function AccountGroup({
       {acc.gameAccounts.length === 0 && (
         <div className="detail">no game accounts — create one with `unforge account create`</div>
       )}
-      {acc.gameAccounts.map((game) => (
+      {acc.gameAccounts.map((gameAccount) => (
         <GameAccountRow
-          key={game.accountId}
-          game={game}
+          key={gameAccount.accountId}
+          gameAccount={gameAccount}
           // The newest launch for this account is the one worth showing.
-          launch={launches.findLast((l) => l.account.accountId === game.accountId)}
+          launch={launches.findLast((l) => l.account.accountId === gameAccount.accountId)}
           onLaunch={onLaunch}
         />
       ))}
@@ -174,11 +137,11 @@ function AddAccount({ onAdd }: { onAdd: (email: string, password: string) => voi
 }
 
 function App() {
-  const [accounts, setAccounts] = useState<GfAccount[]>([]);
-  const [launches, setLaunches] = useState<Launch[]>([]);
+  const [accounts, setAccounts] = useState<UiGfAccount[]>([]);
+  const [launches, setLaunches] = useState<LaunchState[]>([]);
 
   useEffect(() => {
-    void readJson<Snapshot>(fetch("/api/state")).then((s) => {
+    void readJson<UiSnapshot>(fetch("/api/state")).then((s) => {
       setAccounts(s.accounts);
       setLaunches(s.launches);
     });
@@ -202,25 +165,28 @@ function App() {
       alert(await failure(res));
       return;
     }
-    const snapshot = await readJson<Snapshot>(res);
+    const snapshot = await readJson<UiSnapshot>(res);
     setAccounts(snapshot.accounts);
     setLaunches(snapshot.launches);
   }
 
-  async function launch(game: GameAccount) {
-    const res = await fetch(`/api/game-accounts/${encodeURIComponent(game.accountId)}/launch`, {
-      method: "POST",
-    });
+  async function launch(gameAccount: UiGameAccount) {
+    const res = await fetch(
+      `/api/game-accounts/${encodeURIComponent(gameAccount.accountId)}/launch`,
+      {
+        method: "POST",
+      },
+    );
     if (!res.ok) {
       alert(await failure(res));
       return;
     }
     // The socket will keep this current; seeding it makes the button react immediately.
-    const started = await readJson<Launch>(res);
+    const started = await readJson<LaunchState>(res);
     setLaunches((prev) => upsert(prev, started));
   }
 
-  async function remove(acc: GfAccount) {
+  async function remove(acc: UiGfAccount) {
     await apply(await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" }));
   }
 
@@ -258,7 +224,7 @@ function App() {
 
 /**
  * The payloads are ours: this UI is served by the same process it talks to, and every body is
- * an `AppSnapshot` / `AppEvent` / `LaunchState` typed at the source. So the assertion is over
+ * a `UiSnapshot` / `UiAppEvent` / `LaunchState` typed at the source. So the assertion is over
  * our own serialization, not untrusted input — one place, rather than a cast per call site.
  */
 async function readJson<T>(res: Response | Promise<Response>): Promise<T> {
@@ -272,13 +238,13 @@ async function readJson<T>(res: Response | Promise<Response>): Promise<T> {
  * bodies, a frame arrives unsolicited and its `type` is the whole contract — so this reads
  * it rather than trusting it, and ignores anything it doesn't recognise.
  */
-function parseEvent(raw: string): AppEvent | undefined {
+function parseEvent(raw: string): UiAppEvent | undefined {
   const parsed: unknown = JSON.parse(raw);
   if (!isRecord(parsed)) return undefined;
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  if (parsed.type === "accounts" && Array.isArray(parsed.accounts)) return parsed as AppEvent;
+  if (parsed.type === "accounts" && Array.isArray(parsed.accounts)) return parsed as UiAppEvent;
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  if (parsed.type === "launch" && isRecord(parsed.launch)) return parsed as AppEvent;
+  if (parsed.type === "launch" && isRecord(parsed.launch)) return parsed as UiAppEvent;
   return undefined;
 }
 
@@ -289,7 +255,7 @@ async function failure(res: Response): Promise<string> {
 }
 
 /** Replace a launch in place, or append it — events arrive for launches we may not have yet. */
-function upsert(launches: Launch[], next: Launch): Launch[] {
+function upsert(launches: LaunchState[], next: LaunchState): LaunchState[] {
   const at = launches.findIndex((l) => l.id === next.id);
   if (at === -1) return [...launches, next];
   return launches.map((l) => (l.id === next.id ? next : l));

@@ -24,14 +24,14 @@ A GameForge login can hold **several game accounts** (the multibox lever — see
 [protocol.md → Creating a game account](./protocol.md#creating-a-game-account)), so
 the store is a collection of **GF accounts**, each owning its game accounts:
 
-| Field              | Secret?              | Notes                                                                                                                                               |
-| ------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `email`            | no                   | the GF login                                                                                                                                        |
-| `alias`            | no                   | optional short handle for refs/pickers (`auth alias`); absent → derived from the email (local part or `+tag`)                                       |
-| `gameAccounts`     | no                   | `{accountId, username, region, server?, character?}` per child                                                                                      |
-| `secrets.password` | **yes**              | only used at the `sessions` step; the durable re-mint key                                                                                           |
-| `secrets.device`   | sensitive            | the whole [`Device`](../src/storage/device.ts) — installation id + identity + profile. Its vector **drifts**, so it is written back after every run |
-| `secrets.token`    | sensitive, revocable | cached `{token, expiresAt}` — reuse to avoid re-auth churn                                                                                          |
+| Field              | Secret?              | Notes                                                                                                                                                                  |
+| ------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `email`            | no                   | the GF login                                                                                                                                                           |
+| `alias`            | no                   | optional short handle for refs/pickers (`auth alias`); absent → derived from the email (local part or `+tag`)                                                          |
+| `gameAccounts`     | no                   | `{accountId, displayName, accountGroup}` per child — GameForge's fields verbatim; the region is a lookup from the group ([protocol.md](./protocol.md#the-region-rule)) |
+| `secrets.password` | **yes**              | only used at the `sessions` step; the durable re-mint key                                                                                                              |
+| `secrets.device`   | sensitive            | the whole [`Device`](../src/storage/device.ts) — installation id + identity + profile. Its vector **drifts**, so it is written back after every run                    |
+| `secrets.token`    | sensitive, revocable | cached `{token, expiresAt}` — reuse to avoid re-auth churn                                                                                                             |
 
 **Secrets are nested under one key, not mixed in.** `list()` returns accounts without it and
 `get()` with it, so dropping the key is all it takes to make a value safe to hand to a UI or
@@ -185,7 +185,7 @@ interface StoredGfAccount {
   id: string;
   email: string;
   alias?: string;
-  gameAccounts: StoredGameAccount[]; // {accountId, username, region, server?, character?}
+  gameAccounts: StoredGameAccount[]; // {accountId, displayName, accountGroup}
   createdAt: number;
   lastUsedAt?: number;
   secrets: {
@@ -204,8 +204,13 @@ That only works if a stale store is _detected_, so `loadState` validates the who
 the `StoreState` schema and refuses a mismatch, naming the field. Being our own data is not a
 reason to trust it: a store written before a field existed reads fine field-by-field and then
 encodes `undefined` into a blackbox, which GameForge refuses for reasons that point nowhere near
-here. The config takes the opposite line deliberately — it holds only paths, so a malformed entry
-is dropped and defaulted rather than blocking a launch.
+here.
+
+**Per field, what a reset costs decides whether stale is fatal.** `gameAccounts` is a cache of
+GameForge's list, so it empties (`.catch([])`) and `account sync` refills it. `secrets` — password,
+token, and above all `device` — exists nowhere else, so it refuses. The config takes the
+`gameAccounts` line throughout: it holds only paths, so a malformed entry is dropped rather than
+blocking a launch.
 
 Reads are **sync** (served from the in-memory copy); writes are **async** because sealing
 shells out to DPAPI:

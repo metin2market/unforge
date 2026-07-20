@@ -60,8 +60,8 @@ export class UnauthorizedError extends UnforgeError {
 export interface CodeNotAllowedContext {
   /** The `gameId` we sent, region suffix included — what GF was actually asked for. */
   gameId: string;
-  /** The account's own group per `user/accounts`, when GF sent one. */
-  accountGroup?: string;
+  /** The account's own group per `user/accounts`. */
+  accountGroup: string;
   /** True when that group and the region we sent disagree — cause 1, and actionable. */
   regionMismatch: boolean;
   /** True when GF has the account deleted or scheduled for deletion — waiting won't fix it. */

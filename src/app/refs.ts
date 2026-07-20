@@ -1,7 +1,7 @@
 // Refs — turning what a user types into a stored account.
 //
 // Every command takes a ref rather than an id: a GameForge account by handle, email, or id
-// prefix; a game account by username, display name, or id prefix. Game accounts are globally
+// prefix; a game account by display name or id prefix. Game accounts are globally
 // unique, so neither needs a "current account" to disambiguate against. Ambiguity is always
 // rejected rather than guessed at. See docs/cli.md.
 
@@ -82,26 +82,25 @@ export function resolveGfAccount(accounts: GfAccount[], ref: string): GfAccount 
 /** A game account and the id of the GameForge login that owns it. */
 export interface ResolvedGameAccount {
   gfId: string;
-  game: StoredGameAccount;
+  gameAccount: StoredGameAccount;
 }
 
 /**
- * Resolve a game-account ref — its username or displayName (case-insensitive), or its
- * account id (full or an unambiguous prefix) — across every GameForge login. Game
+ * Resolve a game-account ref — its displayName (case-insensitive) or its account id (full or
+ * an unambiguous prefix) — across every GameForge login. Game
  * accounts are globally unique, so no GF context is needed. Throws on no/ambiguous match.
  */
 export function resolveGameAccount(accounts: GfAccount[], ref: string): ResolvedGameAccount {
   const lc = ref.toLowerCase();
   const hits: ResolvedGameAccount[] = [];
   for (const account of accounts) {
-    for (const game of account.gameAccounts) {
+    for (const gameAccount of account.gameAccounts) {
       if (
-        game.username.toLowerCase() === lc ||
-        game.displayName?.toLowerCase() === lc ||
-        game.accountId === ref ||
-        game.accountId.startsWith(ref)
+        gameAccount.displayName.toLowerCase() === lc ||
+        gameAccount.accountId === ref ||
+        gameAccount.accountId.startsWith(ref)
       ) {
-        hits.push({ gfId: account.id, game });
+        hits.push({ gfId: account.id, gameAccount });
       }
     }
   }
@@ -121,79 +120,11 @@ export function soleGfAccount(accounts: GfAccount[]): GfAccount {
   return accounts[0];
 }
 
-/**
- * The account groups whose code is a **country**, not a language — GameForge's client locales
- * use the language, so these two namespaces disagree and the group can't be used as-is.
- *
- * Established by probing the patching endpoint, which answers for every locale but returns an
- * empty file list for one that isn't real: `?locale=dk` → `{"entries":[]}`, `?locale=da` → the
- * full client. Same for `cz` vs `cs`. The other eleven Metin2 groups
- * (`es ro pl en it fr pt hu tr nl de`) map to themselves, each verified the same way.
- *
- * (`gr` → `el` behaves identically but is not among the groups GameForge lists for Metin2, so
- * it is deliberately absent — this table records what was observed, not what was extrapolated.)
- */
-const CLIENT_LOCALE: Record<string, string> = { dk: "da", cz: "cs" };
-
-/**
- * An account's region, given the client regions installed on this machine.
- *
- * GameForge reports only an `accountGroup` ("pt", "en", "dk"); a region is the full tag
- * ("pt-PT", "en-GB") — the client's folder name *and* the `gameId` suffix. The country half
- * can't be synthesised from the group: GameForge ships "en" as **en-GB**, so doubling the subtag
- * invents "en-EN", which exists nowhere. So the group is translated to its client locale and
- * matched against the first subtag of each installed region.
- *
- * An unmatched group returns undefined and the caller falls back — safe, but a fallback, so a
- * wrong region can still reach `thin/codes` and be refused. {@link regionMismatch} reports that.
- */
-export function regionForAccountGroup(
-  accountGroup: string | undefined,
-  installed: string[],
-): string | undefined {
-  if (!accountGroup) return undefined;
-  const group = accountGroup.toLowerCase();
-  const locale = CLIENT_LOCALE[group] ?? group;
-  return installed.find((r) => r.split("-")[0].toLowerCase() === locale);
-}
-
-export interface StampRegion {
-  /** A region the caller asked for outright (`--region`) — a decision, so it wins. */
-  explicit?: string;
-  /** Client regions installed on this machine, e.g. `["pt-PT", "en-GB"]`. */
-  installed: string[];
-  /** Where to land when nothing else says: the app's default region. */
-  fallback: string;
-  /** The login as we last stored it, for the per-account region/server/character we knew. */
-  prior?: GfAccount;
-}
-
-/**
- * Map a core `GameAccount` (from `/user/accounts`) onto the stored shape.
- *
- * The region is the account's own property, and it decides two things at once: which localized
- * client gets launched, and the `<gameId>.<region>` that `thin/codes` is asked for. Getting it
- * wrong fails the mint with a 403 that blames nothing, so each account is stamped with the
- * region GameForge filed *it* under — stamping one login-wide default across every account is
- * precisely how a multi-region login becomes unlaunchable.
- *
- * GameForge's answer also outranks what we already stored, which is the unusual call here: a
- * stored region that contradicts it is a guess *we* made on an earlier login, and leaving it
- * sticky means the account stays unlaunchable no matter how many times the user logs in again.
- * Only an explicit region beats it — that one came from a person.
- */
-export function toStoredGameAccount(
-  account: GameAccount,
-  { explicit, installed, fallback, prior }: StampRegion,
-): StoredGameAccount {
-  const previous = prior?.gameAccounts.find((g) => g.accountId === account.id);
-  const fromGf = regionForAccountGroup(account.accountGroup, installed);
+/** Map a core `GameAccount` onto the stored shape. */
+export function toStoredGameAccount(account: GameAccount): StoredGameAccount {
   return {
     accountId: account.id,
-    username: account.usernames[0] ?? account.displayName,
     displayName: account.displayName,
-    region: explicit ?? fromGf ?? previous?.region ?? fallback,
-    server: previous?.server ?? account.server,
-    character: previous?.character,
+    accountGroup: account.accountGroup,
   };
 }

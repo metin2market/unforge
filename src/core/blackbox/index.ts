@@ -15,10 +15,5 @@ export {
 } from "./generate.ts";
 // `DeviceProfile` / `DeviceIdentity` are each a schema *and* the type it infers — both are
 // persisted, so the schema is what validates them back off disk.
-export {
-  LAUNCHER_BROWSER_FIELDS,
-  generateDeviceProfile,
-  localeFor,
-  DeviceProfile,
-} from "./device.ts";
+export { LAUNCHER_BROWSER_FIELDS, generateDeviceProfile, DeviceProfile } from "./device.ts";
 export { createDeviceIdentity, driftVector, DeviceIdentity } from "./identity.ts";

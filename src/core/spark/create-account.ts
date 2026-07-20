@@ -10,6 +10,7 @@ import {
   SPARK_ORIGIN,
   type SparkRequest,
 } from "../http.ts";
+import type { AccountGroup } from "../regions.ts";
 import { sendWithChallenge } from "./challenge.ts";
 
 // Metin2's identifiers (pt environment), from a captured creation request.
@@ -25,11 +26,20 @@ export interface CreateGameAccountOptions {
   blackbox: string;
   gameId?: string;
   gameEnvironmentId?: string;
-  /** Language + account-group region, e.g. "pt". */
-  gfLang?: string;
-  accountGroup?: string;
-  /** GF locale for the captcha (`^[a-z]{2}-[A-Z]{2}$`); only used if a PoW fires. */
-  locale?: string;
+  /**
+   * The localized community, e.g. "pt" — the dimension behind `<gfLang>.metin2.gameforge.com`.
+   * The launcher sends it equal to {@link accountGroup}, but its value set is wider (`all`, and
+   * communities Metin2 has no group for), so `string`: nothing enumerates it to narrow against.
+   */
+  gfLang: string;
+  /** Where the account lives, permanently. Required — a wrong one can't be corrected later. */
+  accountGroup: AccountGroup;
+  /**
+   * GF interface locale, `^[a-z]{2}-[A-Z]{2}$`. Never reaches the body — only the captcha page,
+   * if a PoW fires. Callers pass the region the account is being created in, which is a valid
+   * locale and the language whoever is creating it will be reading.
+   */
+  locale: string;
   /** Solved PoW id, set on the retry after a 409 (see {@link sendWithChallenge}). */
   challengeId?: string;
 }
@@ -67,8 +77,8 @@ export function buildCreateAccountRequest(opts: CreateGameAccountOptions): Spark
       displayName: opts.displayName,
       gameId: opts.gameId ?? METIN2_GAME_ID,
       gameEnvironmentId: opts.gameEnvironmentId ?? METIN2_GAME_ENVIRONMENT_ID,
-      gfLang: opts.gfLang ?? "pt",
-      accountGroup: opts.accountGroup ?? "pt",
+      gfLang: opts.gfLang,
+      accountGroup: opts.accountGroup,
       blackbox: opts.blackbox,
     }),
   };
@@ -80,7 +90,7 @@ export async function createGameAccount(
 ): Promise<CreatedGameAccount> {
   const res = await sendWithChallenge(
     (challengeId) => buildCreateAccountRequest({ ...opts, challengeId }),
-    opts.locale ?? "en-GB",
+    opts.locale,
   );
   return readJson(res, CreatedGameAccount);
 }

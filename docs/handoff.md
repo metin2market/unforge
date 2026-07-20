@@ -147,10 +147,9 @@ the central design constraint, and it cuts both ways:
 
 ## Verifying it
 
-[`scripts/gsl-launch-test.ts`](../scripts/gsl-launch-test.ts) is the observation harness: it hosts the
-pipe, spawns the client, logs every JSON-RPC call (unknown methods included), and answers from a real
-minted code. `UNFORGE_PROBE_DRY=1` validates resolution and config without touching the launcher, the
-pipe, or an auth.
+`unforge launch <game-account>` is the observation path: every JSON-RPC call the client makes is
+logged at `debug` (`--verbose` to see it live), unknown methods included, and the auth behind each
+minted code is in the always-on trace ([logging.md](./logging.md)).
 
 [`scripts/capture-launch.ps1`](../scripts/capture-launch.ps1) captures ground truth from a **real**
 launcher Play: it polls `Win32_Process` and dumps each `metin2client` command line as it appears. Run

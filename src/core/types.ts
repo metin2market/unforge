@@ -32,11 +32,9 @@ export interface GameAccount {
    *
    * This is the authority on where the account can play: `thin/codes` sends `gameId.<region>`,
    * and a region that disagrees is refused with the same generic "not allowed to create code" as
-   * an outstanding one. Absent on responses that omit it.
+   * an outstanding one.
    */
-  accountGroup?: string;
-  /** Server number from `guls.server`, when GF sent one. */
-  server?: string;
+  accountGroup: string;
   /** GF has this account deleted or scheduled for deletion — it can be listed but not played. */
   retired: boolean;
 }

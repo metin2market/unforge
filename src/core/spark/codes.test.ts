@@ -23,6 +23,7 @@ const account: GameAccount = {
   usernames: ["test"],
   gameId: METIN2_GAME_ID,
   gameName: "metin2",
+  accountGroup: "pt",
   retired: false,
 };
 
@@ -34,7 +35,7 @@ const opts = {
   certificatePem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
   sessionId: "4f6b7f5a-ffcf-419a-a7be-f32422f7c1af",
   rawBlackbox: "tra:AAAA",
-  region: "pt-PT",
+  region: "pt-PT" as const,
 };
 
 describe("requestLoginCode response handling", () => {

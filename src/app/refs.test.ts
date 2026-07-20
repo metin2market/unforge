@@ -11,7 +11,6 @@ import {
   soleGfAccount,
   toStoredGameAccount,
   validateAlias,
-  type StampRegion,
 } from "./refs.ts";
 
 const account = (id: string, email: string, extra: Partial<GfAccount> = {}): GfAccount => ({
@@ -25,14 +24,12 @@ const account = (id: string, email: string, extra: Partial<GfAccount> = {}): GfA
 const accounts: GfAccount[] = [
   account("aaaa1111-0000-4000-8000-000000000001", "alpha@example.com", {
     gameAccounts: [
-      { accountId: "g-100", username: "hero100", displayName: "Hero One", region: "pt-PT" },
-      { accountId: "g-101", username: "hero101", displayName: "Hero Two", region: "pt-PT" },
+      { accountId: "g-100", displayName: "Hero One", accountGroup: "pt" },
+      { accountId: "g-101", displayName: "Hero Two", accountGroup: "pt" },
     ],
   }),
   account("bbbb2222-0000-4000-8000-000000000002", "beta@example.com", {
-    gameAccounts: [
-      { accountId: "g-200", username: "mage200", displayName: "Mage", region: "de-DE" },
-    ],
+    gameAccounts: [{ accountId: "g-200", displayName: "Mage", accountGroup: "de" }],
   }),
 ];
 
@@ -79,11 +76,11 @@ test("validateAlias rejects empty, whitespace, numeric, and colliding handles", 
   expect(validateAlias(pair, "a", "  one  ")).toBe("one");
 });
 
-test("resolveGameAccount finds by username, display name, and account id — globally", () => {
-  expect(resolveGameAccount(accounts, "hero100").gfId).toBe(alphaId);
-  expect(resolveGameAccount(accounts, "Hero One").game.accountId).toBe("g-100");
+test("resolveGameAccount finds by name and account id — globally, case-insensitively", () => {
+  expect(resolveGameAccount(accounts, "Hero One").gfId).toBe(alphaId);
+  expect(resolveGameAccount(accounts, "hero one").gameAccount.accountId).toBe("g-100");
   expect(resolveGameAccount(accounts, "g-200").gfId).toBe(betaId);
-  expect(resolveGameAccount(accounts, "MAGE200").game.accountId).toBe("g-200");
+  expect(resolveGameAccount(accounts, "MAGE").gameAccount.accountId).toBe("g-200");
 });
 
 test("resolveGameAccount throws on no match", () => {
@@ -96,72 +93,26 @@ test("soleGfAccount refuses to guess when there's more than one login", () => {
   expect(() => soleGfAccount([])).toThrow(/no GameForge account/);
 });
 
-// ── region stamping ─────────────────────────────────────────────────────────────
-// A region is the account's own property and decides two things at once: which localized client
-// launches, and the `gameId.<region>` `thin/codes` is asked for. GameForge only tells us the
-// language half, so the country half comes from the clients installed here.
+// ── stamping ────────────────────────────────────────────────────────────────────
+// A stored account is GameForge's answer copied verbatim — see core/regions.test.ts for the
+// group-to-region table it is read through.
 
-const INSTALLED = ["pt-PT", "en-GB"];
-
-const remote = (extra: Partial<GameAccount> = {}): GameAccount => ({
+const liveAccount = (extra: Partial<GameAccount> = {}): GameAccount => ({
   id: "acc-1",
   numericId: 1,
   displayName: "neu418x",
-  usernames: ["neu418x"],
+  usernames: [],
   gameId: "fab180a3-cd65-4b7e-bd0e-2ef77fd0c258",
   gameName: "metin2",
+  accountGroup: "pt",
   retired: false,
   ...extra,
 });
 
-const stamp = (game: GameAccount, over: Partial<StampRegion> = {}) =>
-  toStoredGameAccount(game, { installed: INSTALLED, fallback: "pt-PT", ...over });
-
-test("resolves the language GameForge reports against the installed clients", () => {
-  expect(stamp(remote({ accountGroup: "en" })).region).toBe("en-GB");
-  expect(stamp(remote({ accountGroup: "pt" })).region).toBe("pt-PT");
-});
-
-test('never invents a country half — GameForge ships "en" as en-GB, not en-EN', () => {
-  // With no en client installed there is no honest answer, so it falls back rather than guess.
-  expect(
-    toStoredGameAccount(remote({ accountGroup: "en" }), {
-      installed: ["pt-PT"],
-      fallback: "pt-PT",
-    }).region,
-  ).toBe("pt-PT");
-});
-
-test("translates the groups whose code is a country, not a language", () => {
-  // GF files Danish accounts under "dk" but ships the client as "da" (probed: ?locale=dk returns
-  // an empty file list, ?locale=da the real client). Matching "dk" to "da-DK" needs the table.
-  expect(stamp(remote({ accountGroup: "dk" }), { installed: ["da-DK"] }).region).toBe("da-DK");
-  expect(stamp(remote({ accountGroup: "cz" }), { installed: ["cs-CZ"] }).region).toBe("cs-CZ");
-});
-
-test("an explicit region outranks GameForge — that one came from a person", () => {
-  expect(stamp(remote({ accountGroup: "pt" }), { explicit: "en-GB" }).region).toBe("en-GB");
-});
-
-test("GameForge overrides a region we guessed wrong on an earlier login", () => {
-  const prior = account("gf-1", "a@b.c", {
-    gameAccounts: [
-      { accountId: "acc-1", username: "neu418x", displayName: "neu418x", region: "pt-PT" },
-    ],
+test("stores GameForge's three fields verbatim, under GameForge's names", () => {
+  expect(toStoredGameAccount(liveAccount({ accountGroup: "tr" }))).toEqual({
+    accountId: "acc-1",
+    displayName: "neu418x",
+    accountGroup: "tr",
   });
-  // Without this, a login stamped once with the wrong region stays unlaunchable forever.
-  expect(stamp(remote({ accountGroup: "en" }), { prior }).region).toBe("en-GB");
-});
-
-test("keeps the stored region when GameForge sends no group", () => {
-  const prior = account("gf-1", "a@b.c", {
-    gameAccounts: [
-      { accountId: "acc-1", username: "neu418x", displayName: "neu418x", region: "tr-TR" },
-    ],
-  });
-  expect(stamp(remote(), { prior }).region).toBe("tr-TR");
-});
-
-test("falls back to the default when nothing else says", () => {
-  expect(stamp(remote()).region).toBe("pt-PT");
 });

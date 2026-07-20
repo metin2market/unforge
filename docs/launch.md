@@ -49,11 +49,19 @@ it. What the cert is: [protocol.md → Certificate](./protocol.md#certificate).
 The per-region game dir is genuinely machine-specific, so `launch` needs
 `unforge config set game-dir <path> [--region <r>]`; `account code` needs nothing.
 
+An account's region comes from GameForge, not from what's installed — so a valid account with no
+dir for its region simply can't be launched here ([protocol.md](./protocol.md#the-region-rule)).
+
 The command **resolves and stores** the real location, so `config list` shows where the client actually
 is. [`discoverGameDirs`](../src/launch/index.ts) expands a leading `~`, finds `metin2client.exe`, and —
-pointed at the install **root** (`…/metin2`) or any **language dir** (`…/metin2/pt-PT`, whose parent it
-then scans) — **fills every language folder** it finds (`pt-PT`, `en-GB`, …), inferring each region from
-the folder name. `--region` is only needed for a non-standard layout where the region can't be inferred.
+pointed at the install **root** (`…/metin2`) or any **region dir** (`…/metin2/pt-PT`, whose parent it
+then scans) — **fills every region folder** it finds (`pt-PT`, `en-GB`, …), inferring each region from
+the folder name. `--region` is only needed for a non-standard layout where the region can't be inferred,
+and a region GameForge doesn't run is refused either way.
+
+Note the region is inferred from the **folder name**. Each install also records one in its `gsl.ini`
+(`region=pt-PT`), and the two can disagree — the GameForge launcher appears to stamp that key from its
+own setting rather than the download's. `findClientDir` does not currently read it.
 
 ## Injecting automation
 

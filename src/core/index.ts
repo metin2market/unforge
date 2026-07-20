@@ -8,7 +8,7 @@
 //
 // So there is no workflow, no persistence, no policy, and no default that encodes a
 // choice of ours. Anything true because *we* decided it — one device per account, cached
-// sessions, region defaults — lives in src/app.
+// sessions, minting a code only when the client asks — lives in src/app.
 //
 // Each network step is a pair: a pure `build*Request` and the call that sends it. The
 // pure half is the artifact — it's what gets asserted byte-for-byte against a captured
@@ -51,7 +51,9 @@ export {
 export type { CreateGameAccountOptions, CreatedGameAccount } from "./spark/create-account.ts";
 export { attestDevice, buildAttestRequest } from "./spark/iovation.ts";
 export type { AttestDeviceOptions } from "./spark/iovation.ts";
-export { requestLoginCode, buildCodeRequest, regionMismatch } from "./spark/codes.ts";
+export { requestLoginCode, buildCodeRequest, codeRefusal } from "./spark/codes.ts";
+export { regionForGroup, groupForRegion, isRegion, assertRegion, knownRegions } from "./regions.ts";
+export type { AccountGroup, Region } from "./regions.ts";
 export type { RequestCodeOptions } from "./spark/codes.ts";
 export { sparkFetch } from "./http.ts";
 export type { SparkRequest } from "./http.ts";
@@ -71,7 +73,6 @@ export {
   encodeBlackboxBody,
   LAUNCHER_BROWSER_FIELDS,
   generateDeviceProfile,
-  localeFor,
   DeviceProfile,
   DeviceIdentity,
 } from "./blackbox/index.ts";

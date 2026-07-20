@@ -28,8 +28,11 @@ export interface CreateGfAccountOptions extends Credentials {
   installationId: string;
   /** iovation "blackbox" (`tra:…`), generated natively (see blackbox/generate.ts). */
   blackbox: string;
-  /** GF locale, `^[a-z]{2}-[A-Z]{2}$` — e.g. "en-GB", "pt-PT". */
-  locale?: string;
+  /**
+   * GF interface locale, `^[a-z]{2}-[A-Z]{2}$` — see {@link CreateSessionOptions.locale}. Also
+   * stored on the new account (`user/me`).
+   */
+  locale: string;
   /** Solved PoW id, set on the retry after a 409 (see {@link solveChallenge}). */
   challengeId?: string;
 }
@@ -53,7 +56,7 @@ export function buildCreateGfAccountRequest(opts: CreateGfAccountOptions): Spark
     body: JSON.stringify({
       email: opts.email,
       password: opts.password,
-      locale: opts.locale ?? "en-GB",
+      locale: opts.locale,
       blackbox: opts.blackbox,
     }),
   };
@@ -63,7 +66,7 @@ export function buildCreateGfAccountRequest(opts: CreateGfAccountOptions): Spark
 export async function createGfAccount(opts: CreateGfAccountOptions): Promise<{ userId: string }> {
   const res = await sendWithChallenge(
     (challengeId) => buildCreateGfAccountRequest({ ...opts, challengeId }),
-    opts.locale ?? "en-GB",
+    opts.locale,
   );
   const data = await readJson(res, CreateUserResponse);
   // A 2xx is not confirmation on its own — GF reports the outcome in the body, and every

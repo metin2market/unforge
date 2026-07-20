@@ -7,6 +7,7 @@ import {
   discoverGameDirs,
   expandHome,
   findClientDir,
+  findClientDirAnywhere,
   spawnClient,
 } from "./index.ts";
 
@@ -70,7 +71,7 @@ describe("findClientDir", () => {
 
   test("finds the exe directly in the given dir", () => {
     touch(exe);
-    expect(findClientDir(dir)).toBe(dir);
+    expect(findClientDir(dir, "pt-PT")).toBe(dir);
   });
 
   test("finds the exe in a region subfolder", () => {
@@ -80,25 +81,32 @@ describe("findClientDir", () => {
 
   test("finds the exe nested deeper via search", () => {
     touch("game", "client", "bin", exe);
-    expect(findClientDir(dir)).toBe(join(dir, "game", "client", "bin"));
+    expect(findClientDir(dir, "pt-PT")).toBe(join(dir, "game", "client", "bin"));
   });
 
   test("prefers the region-matching path when several clients exist", () => {
     touch("de-DE", exe);
     touch("pt-PT", exe);
     expect(findClientDir(dir, "pt-PT")).toBe(join(dir, "pt-PT"));
+    // The point of requiring a region: the same tree resolves differently per account.
+    expect(findClientDir(dir, "de-DE")).toBe(join(dir, "de-DE"));
   });
 
   test("throws when no client is found", () => {
     mkdirSync(join(dir, "empty"), { recursive: true });
-    expect(() => findClientDir(dir)).toThrow(/not found/);
+    expect(() => findClientDir(dir, "pt-PT")).toThrow(/not found/);
   });
 
   test("throws when the dir does not exist", () => {
-    expect(() => findClientDir(join(dir, "nope"))).toThrow(/does not exist/);
+    expect(() => findClientDir(join(dir, "nope"), "pt-PT")).toThrow(/does not exist/);
   });
 
-  test("discoverGameDirs fills every language folder under the root", () => {
+  test("findClientDirAnywhere takes the shallowest hit when no region is known", () => {
+    touch("game", "client", "bin", exe);
+    expect(findClientDirAnywhere(dir)).toBe(join(dir, "game", "client", "bin"));
+  });
+
+  test("discoverGameDirs fills every region folder under the root", () => {
     touch("pt-PT", exe);
     touch("en-GB", exe);
     const found = discoverGameDirs(dir);
@@ -108,20 +116,21 @@ describe("findClientDir", () => {
     expect(found.find((f) => f.region === "pt-PT")?.dir).toBe(join(dir, "pt-PT"));
   });
 
-  test("discoverGameDirs fills siblings even when pointed at one language dir", () => {
+  test("discoverGameDirs fills siblings even when pointed at one region dir", () => {
     touch("pt-PT", exe);
     touch("en-GB", exe);
-    // Pointing at a language dir scans its parent, so both languages are still filled.
+    // Pointing at a region dir scans its parent, so both regions are still filled.
     const found = discoverGameDirs(join(dir, "pt-PT"));
     expect(found.map((f) => f.region).toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual(
       ["en-GB", "pt-PT"],
     );
   });
 
-  test("discoverGameDirs infers no region for a non-language folder", () => {
+  test("discoverGameDirs infers no region for a non-region folder", () => {
     touch("client", exe);
     const found = discoverGameDirs(join(dir, "client"));
     expect(found).toHaveLength(1);
+    // The caller has to supply one; `config set game-dir` errors if it can't.
     expect(found[0].region).toBeUndefined();
     expect(found[0].dir).toBe(join(dir, "client"));
   });

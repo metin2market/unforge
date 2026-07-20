@@ -14,6 +14,7 @@ import {
   UnauthorizedError,
   UnexpectedResponseError,
 } from "../core/index.ts";
+import { regionLabel } from "./region-text.ts";
 
 export type ErrorKind =
   | "validation"
@@ -67,10 +68,9 @@ export function describeError(err: unknown): ErrorDescription {
       return {
         kind: "code-not-allowed",
         summary:
-          `GameForge filed this game account under "${ctx.accountGroup}", but unforge asked to ` +
-          `play it as ${asked}. Waiting won't help — install the "${ctx.accountGroup}" client and ` +
-          `point unforge at it (\`config set game-dir\`), then sign in again so the account picks ` +
-          `up its own region.`,
+          `GameForge filed this game account under "${ctx.accountGroup}", which plays in ` +
+          `${regionLabel(ctx.accountGroup)}, but the code was asked for as ${asked}. ` +
+          `Waiting won't help — the account can only be played in its own region.`,
       };
     }
     if (ctx?.retired) {

@@ -2,20 +2,28 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openAccountStore, type AccountStore, type ConfigStore } from "../storage/index.ts";
+import { isRegion } from "../core/index.ts";
+import {
+  openAccountStore,
+  type AccountStore,
+  type ConfigStore,
+  type GameDirs,
+} from "../storage/index.ts";
+import { failOnFetch } from "../../test/support/fail-on-fetch.ts";
 import { openApp, type App } from "./app.ts";
 
 let dir: string;
 let store: AccountStore;
 let app: App;
 
-/** In-memory config — `launch` is the only thing that reads it, and these tests don't launch. */
-function stubConfig(gameDirs: Record<string, string> = {}): ConfigStore {
+/** In-memory config. A pt-PT client is the baseline — `create` and `launch` both need one. */
+function stubConfig(gameDirs: GameDirs = { "pt-PT": "C:/metin2/pt-PT" }): ConfigStore {
   return {
-    get: () => ({ version: 1, gameDirs }),
+    regions: () => Object.keys(gameDirs).filter(isRegion),
+    gameDirs: () => gameDirs,
     gameDir: (region) => gameDirs[region],
-    setGameDir: async (region, path) => {
-      gameDirs[region] = path;
+    setGameDirs: async (entries) => {
+      for (const [region, path] of entries) gameDirs[region] = path;
     },
   };
 }
@@ -25,16 +33,14 @@ async function seed(): Promise<{ alphaId: string; betaId: string }> {
     email: "alpha@example.com",
     password: "pw-a",
     gameAccounts: [
-      { accountId: "g-100", username: "hero100", displayName: "Hero One", region: "pt-PT" },
-      { accountId: "g-101", username: "hero101", displayName: "Hero Two", region: "pt-PT" },
+      { accountId: "g-100", displayName: "Hero One", accountGroup: "pt" },
+      { accountId: "g-101", displayName: "Hero Two", accountGroup: "pt" },
     ],
   });
   const beta = await store.add({
     email: "beta@example.com",
     password: "pw-b",
-    gameAccounts: [
-      { accountId: "g-200", username: "mage200", displayName: "Mage", region: "de-DE" },
-    ],
+    gameAccounts: [{ accountId: "g-200", displayName: "Mage", accountGroup: "de" }],
   });
   return { alphaId: alpha.id, betaId: beta.id };
 }
@@ -110,9 +116,7 @@ test("accounts.create reuses a valid session, creates, and persists the new acco
     email: "alpha@example.com",
     password: "pw-a",
     token: { token: "cached-tok", expiresAt: Date.now() + 60_000 },
-    gameAccounts: [
-      { accountId: "g-100", username: "hero100", displayName: "Hero One", region: "pt-PT" },
-    ],
+    gameAccounts: [{ accountId: "g-100", displayName: "Hero One", accountGroup: "pt" }],
   });
 
   const originalFetch = globalThis.fetch;
@@ -143,6 +147,9 @@ test("accounts.create reuses a valid session, creates, and persists the new acco
             displayName: "Hero One",
             usernames: ["hero100"],
             gameId: "metin2",
+            accountGroup: "pt",
+            deleted: null,
+            preDeleted: null,
             guls: { game: "pt-PT" },
           },
           "1": {
@@ -151,6 +158,9 @@ test("accounts.create reuses a valid session, creates, and persists the new acco
             displayName: "Hero Three",
             usernames: ["hero102"],
             gameId: "metin2",
+            accountGroup: "pt",
+            deleted: null,
+            preDeleted: null,
             guls: { game: "pt-PT" },
           },
         }),
@@ -164,7 +174,7 @@ test("accounts.create reuses a valid session, creates, and persists the new acco
     const created = await app.accounts.create({ displayName: "Hero Three" });
 
     expect(created.accountId).toBe("g-102");
-    expect(created.region).toBe("pt-PT");
+    expect(created.accountGroup).toBe("pt");
     // No re-auth: the cached token was still good, and re-auth churn is a risk-scoring trigger.
     expect(calls.some((c) => c.endsWith("/sessions"))).toBe(false);
     expect(
@@ -215,6 +225,9 @@ test("accounts.create authenticates for a fresh token when the session is expire
             displayName: "Fresh",
             usernames: ["fresh"],
             gameId: "metin2",
+            accountGroup: "pt",
+            deleted: null,
+            preDeleted: null,
             guls: { game: "pt-PT" },
           },
         }),
@@ -239,6 +252,140 @@ test("accounts.create requires --gf when multiple logins exist", async () => {
   await expect(app.accounts.create({ displayName: "Whoever" })).rejects.toThrow(
     /multiple GameForge accounts/,
   );
+});
+
+test("accounts.sync replaces the stored set with GameForge's, additions and removals alike", async () => {
+  const alpha = await store.add({
+    email: "alpha@example.com",
+    password: "pw-a",
+    token: { token: "cached-tok", expiresAt: Date.now() + 60_000 },
+    // `Stale` is gone from GameForge; `g-100` is stored under a name it has since changed.
+    gameAccounts: [
+      { accountId: "g-100", displayName: "Old Name", accountGroup: "pt" },
+      { accountId: "g-999", displayName: "Stale", accountGroup: "pt" },
+    ],
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url.endsWith("/user/accounts")) {
+      return new Response(
+        JSON.stringify({
+          "0": {
+            id: "g-100",
+            accountNumericId: 1,
+            displayName: "Hero One",
+            usernames: ["hero100"],
+            gameId: "metin2",
+            accountGroup: "pt",
+            deleted: null,
+            preDeleted: null,
+            guls: { game: "pt-PT" },
+          },
+          "1": {
+            id: "g-101",
+            accountNumericId: 2,
+            displayName: "Hero Two",
+            usernames: ["hero101"],
+            gameId: "metin2",
+            accountGroup: "de",
+            deleted: null,
+            preDeleted: null,
+            guls: { game: "de-DE" },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response("", { status: 200 });
+  }) as unknown as typeof fetch;
+
+  try {
+    const rows = await app.accounts.sync();
+    expect(rows.map((r) => r.accountId).toSorted()).toEqual(["g-100", "g-101"]);
+    const stored = store.get(alpha.id)!.gameAccounts;
+    expect(stored.map((g) => g.accountId).toSorted()).toEqual(["g-100", "g-101"]);
+    expect(stored.find((g) => g.accountId === "g-100")?.displayName).toBe("Hero One");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── region safeguards ───────────────────────────────────────────────────────────
+// Knowable from the account plus the config, so these refuse without asking GameForge.
+
+/** A login owning one game account, in whatever group the test needs. */
+async function seedOneAccount(group: string): Promise<void> {
+  await store.add({
+    email: "alpha@example.com",
+    password: "pw-a",
+    token: { token: "tok", expiresAt: Date.now() + 60_000 },
+    gameAccounts: [{ accountId: "g-1", displayName: "uclt1", accountGroup: group }],
+  });
+}
+
+test("accounts.create refuses a region with no installed client, before any network call", async () => {
+  await store.add({ email: "alpha@example.com", password: "pw-a" });
+  await failOnFetch(async () => {
+    await expect(app.accounts.create({ displayName: "Hero", region: "tr-TR" })).rejects.toThrow(
+      /no tr-TR client installed/,
+    );
+  });
+});
+
+test("accounts.create names the real problem when no client is installed at all", async () => {
+  // Not "--region is required" — passing one wouldn't help.
+  const none = await openApp({
+    store,
+    config: stubConfig({}),
+    certificatePem: "-----TEST-----",
+  });
+  await store.add({ email: "alpha@example.com", password: "pw-a" });
+  try {
+    await failOnFetch(async () => {
+      await expect(none.accounts.create({ displayName: "Hero" })).rejects.toThrow(
+        /no game client configured/,
+      );
+    });
+  } finally {
+    await none.close();
+  }
+});
+
+test("accounts.create demands an explicit region when the machine has several clients", async () => {
+  const many = await openApp({
+    store,
+    config: stubConfig({ "pt-PT": "C:/m/pt", "de-DE": "C:/m/de" }),
+    certificatePem: "-----TEST-----",
+  });
+  await store.add({ email: "alpha@example.com", password: "pw-a" });
+  try {
+    await failOnFetch(async () => {
+      await expect(many.accounts.create({ displayName: "Hero" })).rejects.toThrow(
+        /--region is required/,
+      );
+    });
+  } finally {
+    await many.close();
+  }
+});
+
+test("launch refuses an account whose region has no client here, before burning an auth", async () => {
+  // The Turkish account on a Portuguese box: its region is known, the client is what's missing —
+  // a config question, so GameForge needn't be asked.
+  await seedOneAccount("tr");
+  await failOnFetch(async () => {
+    await expect(app.launches.start("uclt1")).rejects.toThrow(/no game dir for region tr-TR/);
+  });
+});
+
+test("launch and mint both refuse a group the region table doesn't cover", async () => {
+  await seedOneAccount("zz");
+  await failOnFetch(async () => {
+    await expect(app.launches.start("uclt1")).rejects.toThrow(/no region in core/);
+    await expect(app.accounts.mintCode("uclt1")).rejects.toThrow(/no region in core/);
+  });
 });
 
 test("auth.register refuses an email that's already stored", async () => {
@@ -289,6 +436,9 @@ test("auth.register registers, then logs in with the SAME device, and persists i
             displayName: "New Hero",
             usernames: ["newhero"],
             gameId: "metin2",
+            accountGroup: "pt",
+            deleted: null,
+            preDeleted: null,
             guls: { game: "pt-PT" },
           },
         }),

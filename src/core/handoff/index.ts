@@ -8,6 +8,7 @@
 
 export {
   answerRpc,
+  bareMethod,
   buildInvocation,
   CLIENT_EXE,
   drainJsonObjects,

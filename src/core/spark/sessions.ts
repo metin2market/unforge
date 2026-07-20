@@ -28,8 +28,12 @@ export interface CreateSessionOptions extends Credentials {
   installationId: string;
   /** iovation "blackbox" (`tra:…`), generated natively (see blackbox/generate.ts). */
   blackbox: string;
-  /** GF locale, `^[a-z]{2}-[A-Z]{2}$` — e.g. "en-GB", "pt-PT". */
-  locale?: string;
+  /**
+   * GF interface locale, `^[a-z]{2}-[A-Z]{2}$` — error text and the captcha page. `string`, not
+   * a region: GF's set is its platform-wide UI languages, far wider than Metin2's 13 and not
+   * ours to enumerate (docs/protocol.md). Required: a default here would be ours, not GF's.
+   */
+  locale: string;
   /** Solved PoW id, set on the retry after a 409 (see {@link solveChallenge}). */
   challengeId?: string;
 }
@@ -57,7 +61,7 @@ export function buildSessionRequest(opts: CreateSessionOptions): SparkRequest {
       blackbox: opts.blackbox,
       email: opts.email,
       password: opts.password,
-      locale: opts.locale ?? "en-GB",
+      locale: opts.locale,
     }),
   };
 }
@@ -70,7 +74,7 @@ export function buildSessionRequest(opts: CreateSessionOptions): SparkRequest {
 export async function createSession(opts: CreateSessionOptions): Promise<string> {
   const res = await sendWithChallenge(
     (challengeId) => buildSessionRequest({ ...opts, challengeId }),
-    opts.locale ?? "en-GB",
+    opts.locale,
   );
 
   if (res.status === 409) throw await classifyConflict(res);

@@ -1,8 +1,8 @@
 // unforge app — the complete workflows, over core + storage.
 //
-// This is where policy lives: one device per GameForge account, cached sessions, region and
-// locale defaults, cert resolution, minting a code only when the client asks for one. `core`
-// has none of it, deliberately.
+// This is where policy lives: one device per GameForge account, cached sessions, cert
+// resolution, minting a code only when the client asks for one. `core` has none of it,
+// deliberately.
 //
 // Shaped for a long-lived host, because that is the demanding consumer and the CLI gets it
 // for free (the reverse doesn't work — a CLI-shaped API can't be hosted):
@@ -12,7 +12,7 @@
 //   • state is readable (snapshot) and observable (subscribe), in plain JSON.
 
 import { getLogger } from "@logtape/logtape";
-import { UnauthorizedError, type GameAccount } from "../core/index.ts";
+import { regionForGroup, UnauthorizedError, type GameAccount, type Region } from "../core/index.ts";
 import { errorMessage } from "../util/index.ts";
 import { findClientDir, spawnClient } from "../launch/index.ts";
 import {
@@ -22,11 +22,14 @@ import {
   type AccountStore,
   type ConfigStore,
   type Device,
+  type GameDirs,
   type GfAccount,
   type GfAccountWithSecrets,
   type StoredGameAccount,
 } from "../storage/index.ts";
 import { resolveCertPem } from "./cert.ts";
+import { describeError } from "./describe-error.ts";
+import { regionLabel } from "./region-text.ts";
 import { createHandoffServer, type HandoffServer } from "./handoff-server.ts";
 import {
   openGfSession,
@@ -51,16 +54,9 @@ const log = getLogger(["unforge", "app"]);
 /** How long a freshly-minted bearer token is treated as good (GF exposes no real expiry). */
 const TOKEN_TTL_MS = 55 * 60 * 1000;
 
-export const DEFAULT_REGION = "pt-PT";
-export const DEFAULT_LOCALE = "en-GB";
-
 export interface AppOptions {
   store?: AccountStore;
   config?: ConfigStore;
-  /** Default region for new game accounts and minted codes. */
-  region?: string;
-  /** Default GF locale, `^[a-z]{2}-[A-Z]{2}$`. */
-  locale?: string;
   /** Overrides the resolved cert (materials path → bundled). */
   certificatePem?: string;
 }
@@ -69,7 +65,7 @@ export interface AppOptions {
 export interface AppSnapshot {
   accounts: GfAccount[];
   launches: LaunchState[];
-  gameDirs: Record<string, string>;
+  gameDirs: GameDirs;
 }
 
 /** Every state change. A host forwards these to its clients verbatim. */
@@ -90,19 +86,9 @@ export interface App {
 
 export interface AuthApi {
   /** `auth login` — authenticate, mint a device if this email is new, persist with its game accounts. */
-  login(input: {
-    email: string;
-    password: string;
-    alias?: string;
-    region?: string;
-  }): Promise<GfAccount>;
+  login(input: { email: string; password: string; alias?: string }): Promise<GfAccount>;
   /** `auth register` — create a NEW GameForge account, then log it in on the same device. */
-  register(input: {
-    email: string;
-    password: string;
-    alias?: string;
-    region?: string;
-  }): Promise<GfAccount>;
+  register(input: { email: string; password: string; alias?: string }): Promise<GfAccount>;
   list(): GfAccount[];
   /** Set, or with `null`, clear back to the email-derived handle. */
   setAlias(ref: string, alias: string | null): Promise<{ email: string; handle: string }>;
@@ -113,7 +99,10 @@ export interface AuthApi {
   logout(ref: string): Promise<{ email: string }>;
 }
 
-/** A game account plus which GameForge login owns it. */
+/**
+ * A game account plus which GameForge login owns it. No resolved region rides along — both uses,
+ * {@link regionLabel} and {@link launchRegion}, are a one-call lookup from the stored group.
+ */
 export interface GameAccountRow extends StoredGameAccount {
   gfId: string;
   gfEmail: string;
@@ -121,8 +110,17 @@ export interface GameAccountRow extends StoredGameAccount {
 
 export interface AccountsApi {
   list(gfRef?: string): GameAccountRow[];
-  /** Create one under a login — the multibox lever. Omit `gf` when only one login exists. */
-  create(input: { displayName: string; gf?: string; region?: string }): Promise<GameAccountRow>;
+  /**
+   * Re-list game accounts from GameForge for one login or all. A replace, not a merge — GF's
+   * answer is complete, so what it doesn't list stops existing here.
+   */
+  sync(gfRef?: string): Promise<GameAccountRow[]>;
+  /**
+   * Create one under a login — the multibox lever. Omit `gf` when only one login exists, and
+   * `region` when only one client is installed. Refuses a region with no client here: the account
+   * would never be launchable and the region is permanent.
+   */
+  create(input: { displayName: string; gf?: string; region?: Region }): Promise<GameAccountRow>;
   /**
    * Mint a one-time login code. Diagnostic — prefer `launches.start`, which mints only when the
    * client asks. An unconsumed code blocks the account for ~18 minutes.
@@ -143,8 +141,6 @@ export interface LaunchApi {
 export async function openApp(opts: AppOptions = {}): Promise<App> {
   const store = opts.store ?? (await openAccountStore());
   const config = opts.config ?? (await openConfig());
-  const region = opts.region ?? DEFAULT_REGION;
-  const locale = opts.locale ?? DEFAULT_LOCALE;
 
   const listeners = new Set<(event: AppEvent) => void>();
   const emit = (event: AppEvent): void => {
@@ -161,30 +157,22 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
   const ensureHandoff = async (): Promise<HandoffServer> =>
     (handoff ??= await createHandoffServer({
       onCall: ({ method, sessionId, answered }) => {
-        launches.onHandoffCall(sessionId, method);
+        launches.onHandoffCall(sessionId, method, answered);
         log.debug("handoff: {method} {outcome}", {
           method,
           outcome: answered ? "answered" : "(no answer)",
         });
       },
       // The client just gets no answer, so this is the only place the reason surfaces.
-      onError: (method, _sessionId, err) => {
+      onError: (method, sessionId, err) => {
+        launches.onHandoffError(sessionId, describeError(err).summary);
         log.error("handoff: {method} failed — {error}", { method, error: errorMessage(err) });
       },
     }));
 
-  /**
-   * The client regions installed on this machine — the language folders `config set game-dir`
-   * found. These are the regions an account can actually be launched into, and the only place
-   * a language's country half ("en" → "en-GB") is known for certain.
-   */
-  const installedRegions = (): string[] => Object.keys(config.get().gameDirs);
-
   let policy: GfSessionPolicy | undefined;
   const sessionPolicy = async (): Promise<GfSessionPolicy> =>
     (policy ??= {
-      locale,
-      region,
       certificatePem: opts.certificatePem ?? (await resolveCertPem()),
     });
 
@@ -246,30 +234,19 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
   /** Shared tail of login/register: discover game accounts and persist everything. */
   async function persistSession(
     session: GfSession,
-    input: { email: string; password: string; alias?: string; region?: string },
+    input: { email: string; password: string; alias?: string },
     prior?: GfAccount,
   ): Promise<GfAccount> {
     const discovered = await session.accounts();
     log.info("found {count} game account(s)", { count: discovered.length });
-    const gameAccounts = discovered.map((a: GameAccount) =>
-      toStoredGameAccount(a, {
-        explicit: input.region,
-        installed: installedRegions(),
-        fallback: region,
-        prior,
-      }),
-    );
-    for (const [i, a] of discovered.entries()) {
-      log.debug(
-        "game account {name}: group={accountGroup} server={server} region={region}{retired}",
-        {
-          name: a.displayName,
-          accountGroup: a.accountGroup ?? "?",
-          server: a.server ?? "?",
-          region: gameAccounts[i].region,
-          retired: a.retired ? " RETIRED" : "",
-        },
-      );
+    const gameAccounts = discovered.map(toStoredGameAccount);
+    for (const a of discovered) {
+      log.debug("game account {name}: group={accountGroup} region={region}{retired}", {
+        name: a.displayName,
+        accountGroup: a.accountGroup,
+        region: regionLabel(a.accountGroup),
+        retired: a.retired ? " RETIRED" : "",
+      });
     }
     const token = { token: session.token, expiresAt: Date.now() + TOKEN_TTL_MS };
 
@@ -300,9 +277,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       const prior = store.list().find((a) => a.email.toLowerCase() === input.email.toLowerCase());
       // Reuse this account's device forever — a fingerprint that changes between logins is
       // itself a flag; a shared one correlates accounts.
-      const device = prior
-        ? store.get(prior.id)!.secrets.device
-        : createDevice(input.region ?? region);
+      const device = prior ? store.get(prior.id)!.secrets.device : createDevice();
       log.debug("sessions: authenticating {email} ({which} device)", {
         email: input.email,
         which: prior ? "existing" : "new",
@@ -323,7 +298,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
       }
       const session = await registerGfSession(
         { email: input.email, password: input.password },
-        createDevice(input.region ?? region),
+        createDevice(),
         await sessionPolicy(),
       );
       return persistSession(session, input);
@@ -348,8 +323,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
 
     async regenDevice(ref) {
       const target = resolveGfAccount(store.list(), ref);
-      // The login's own region, not the app default — else the cleanup introduces a mismatch.
-      const device = createDevice(target.gameAccounts[0]?.region ?? region);
+      const device = createDevice();
       // Keep the cached token: it's account-level, not device-bound.
       await store.save(target.id, { device });
       return { email: target.email, device };
@@ -369,11 +343,30 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
 
   const accounts: AccountsApi = {
     list(gfRef) {
-      const gfId = gfRef ? resolveGfAccount(store.list(), gfRef).id : undefined;
-      return store
-        .list()
+      const all = store.list();
+      const gfId = gfRef ? resolveGfAccount(all, gfRef).id : undefined;
+      return all
         .filter((a) => !gfId || a.id === gfId)
         .flatMap((a) => a.gameAccounts.map((g) => ({ ...g, gfId: a.id, gfEmail: a.email })));
+    },
+
+    async sync(gfRef) {
+      const targets = gfRef ? [resolveGfAccount(store.list(), gfRef)] : store.list();
+      for (const summary of targets) {
+        const gf = store.get(summary.id)!;
+        // Retryable: a read, so replaying it after a 401 costs a round trip and nothing else.
+        const discovered = await withSession(gf, (session) => session.accounts(), {
+          retryable: true,
+        });
+        const gameAccounts = discovered.map(toStoredGameAccount);
+        await store.save(gf.id, { gameAccounts });
+        log.info("{email}: {count} game account(s)", {
+          email: gf.email,
+          count: gameAccounts.length,
+        });
+      }
+      // Through `list`, so a row is defined once and the answer comes from the store.
+      return accounts.list(gfRef);
     },
 
     async create(input) {
@@ -381,32 +374,20 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         ? resolveGfAccount(store.list(), input.gf)
         : soleGfAccount(store.list());
       const account = store.get(summary.id)!;
-      // Where the account is created is where it lives permanently, so it's decided here and
-      // used for both halves — the creation itself and the region we stamp it with.
-      const createIn = input.region ?? region;
-      if (!installedRegions().includes(createIn)) {
-        log.warning("no {region} client installed — this account won't be launchable here", {
-          region: createIn,
-        });
-      }
+      const createIn = createRegion(config.regions(), input.region);
 
       // Not `retryable`: a 401 on the re-list would replay the create, making a second account.
       const created = await withSession(account, async (session) => {
-        const made = await session.createGameAccount(input.displayName, { region: createIn });
+        const made = await session.createGameAccount(input.displayName, createIn);
         log.info("created game account '{name}' in {region}", {
           name: made.displayName,
           region: createIn,
         });
-        // Re-list so the store gets each account's canonical shape (username, numeric id).
+        // Re-list rather than trust the create response: the group GameForge filed the account
+        // under is the only confirmation it landed where we asked.
         const discovered = await session.accounts();
         await store.save(account.id, {
-          gameAccounts: discovered.map((a) =>
-            toStoredGameAccount(a, {
-              installed: installedRegions(),
-              fallback: createIn,
-              prior: account,
-            }),
-          ),
+          gameAccounts: discovered.map(toStoredGameAccount),
         });
         return made;
       });
@@ -419,16 +400,17 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
     },
 
     async mintCode(ref) {
-      const { gfId, game } = resolveGameAccount(store.list(), ref);
+      const { gfId, gameAccount } = resolveGameAccount(store.list(), ref);
       const gf = store.get(gfId)!;
       // The numeric id rides along: whoever consumes a code has to answer the client with it.
       // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
+      const region = launchRegion(gameAccount);
       return withSession(
         gf,
         async (session) => {
-          const remote = pickRemote(await session.accounts(), game);
-          const code = await session.mintCode(remote, { region: game.region });
-          return { code, account: game, numericId: remote.numericId };
+          const live = pickLive(await session.accounts(), gameAccount);
+          const code = await session.mintCode(live, region);
+          return { code, account: gameAccount, numericId: live.numericId };
         },
         { retryable: true },
       );
@@ -437,24 +419,25 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
 
   const launchApi: LaunchApi = {
     async start(ref) {
-      const { gfId, game } = resolveGameAccount(store.list(), ref);
+      const { gfId, gameAccount } = resolveGameAccount(store.list(), ref);
       const gf = store.get(gfId)!;
 
-      // Fail before burning an auth if the client isn't reachable.
-      const gameDir = config.gameDir(game.region);
+      // Fail before burning an auth: the account must have a region here, and a client for it.
+      const region = launchRegion(gameAccount);
+      const gameDir = config.gameDir(region);
       if (!gameDir) {
         throw new Error(
-          `no game dir for region ${game.region} — run: ${binName()} config set game-dir <path> --region ${game.region}`,
+          `no game dir for region ${region} — run: ${binName()} config set game-dir <path> --region ${region}`,
         );
       }
-      const clientDir = findClientDir(gameDir, game.region);
+      const clientDir = findClientDir(gameDir, region);
       // Same reason: bind the pipe before spawning, so PipeInUseError surfaces here.
       const pipe = await ensureHandoff();
 
       const state: LaunchState = {
         id: crypto.randomUUID(),
         accountRef: ref,
-        account: game,
+        account: gameAccount,
         status: "authenticating",
         elevated: false,
         gameDir: clientDir,
@@ -466,9 +449,9 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         // Only the account is resolved, for the ticket's `numericId`. Minting here would leave a
         // code outstanding across the unbounded wait at the server screen, holding the account
         // ~18 minutes if the client is closed before joining. Retryable: a read.
-        const remote = await withSession(
+        const live = await withSession(
           gf,
-          async (session) => pickRemote(await session.accounts(), game),
+          async (session) => pickLive(await session.accounts(), gameAccount),
           { retryable: true },
         );
 
@@ -478,14 +461,14 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         const sessionId = pipe.register({
           mintCode: () => {
             log.debug("handoff: minting a login code for {name}", {
-              name: game.displayName ?? game.username,
+              name: gameAccount.displayName,
             });
-            return withSession(gf, (session) => session.mintCode(remote, { region: game.region }), {
+            return withSession(gf, (session) => session.mintCode(live, region), {
               retryable: true,
             });
           },
-          name: game.displayName ?? game.username,
-          numericId: remote.numericId,
+          name: gameAccount.displayName,
+          numericId: live.numericId,
         });
         launches.bindSession(state.id, sessionId);
 
@@ -514,7 +497,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
     snapshot: () => ({
       accounts: store.list(),
       launches: launches.list(),
-      gameDirs: { ...config.get().gameDirs },
+      gameDirs: config.gameDirs(),
     }),
     subscribe(fn) {
       listeners.add(fn);
@@ -527,9 +510,48 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
   };
 }
 
+/**
+ * The region to create a game account in: the caller's choice, or the sole installed client.
+ * Refuses anything else — the region is permanent, so an account created for a client that isn't
+ * here could never be launched. A frontend that can ask a person resolves the several-installed
+ * case first (`pickRegion`); one that can't gets the error.
+ */
+function createRegion(installed: Region[], explicit?: Region): Region {
+  if (installed.length === 0) {
+    throw new Error(`no game client configured — run: ${binName()} config set game-dir <path>`);
+  }
+  if (!explicit) {
+    if (installed.length === 1) return installed[0];
+    throw new Error(
+      `--region is required: ${installed.length} clients installed (${installed.join(", ")})`,
+    );
+  }
+  if (!installed.includes(explicit)) {
+    throw new Error(
+      `no ${explicit} client installed — the account would not be launchable here. ` +
+        `Install it and run: ${binName()} config set game-dir <path> --region ${explicit}`,
+    );
+  }
+  return explicit;
+}
+
+/**
+ * The region a stored account plays in, looked up from its group. A group the table doesn't
+ * cover can be neither launched nor minted — adding a row is the fix, not a fallback.
+ * Unlike {@link regionLabel}, which renders an unmapped group, this refuses it.
+ */
+function launchRegion(gameAccount: StoredGameAccount): Region {
+  const region = regionForGroup(gameAccount.accountGroup);
+  if (region) return region;
+  throw new Error(
+    `'${gameAccount.displayName}' is in GameForge group '${gameAccount.accountGroup}', ` +
+      `which has no region in core/regions.ts`,
+  );
+}
+
 /** Match a stored game account to its live `/user/accounts` entry. */
-function pickRemote(remote: GameAccount[], game: StoredGameAccount): GameAccount {
-  const found = remote.find((a) => a.id === game.accountId);
-  if (!found) throw new Error(`game account "${game.username}" is no longer on this login`);
+function pickLive(live: GameAccount[], stored: StoredGameAccount): GameAccount {
+  const found = live.find((a) => a.id === stored.accountId);
+  if (!found) throw new Error(`game account "${stored.displayName}" is no longer on this login`);
   return found;
 }

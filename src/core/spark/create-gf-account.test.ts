@@ -3,7 +3,13 @@ import { buildCreateGfAccountRequest, createGfAccount } from "./create-gf-accoun
 
 const INSTALL = "5814f474-9054-4215-99fe-9a30baf46370";
 const BB = "tra:AAAAExampleRawBlackbox";
-const base = { email: "a@b.c", password: "pw", blackbox: BB, installationId: INSTALL };
+const base = {
+  email: "a@b.c",
+  password: "pw",
+  blackbox: BB,
+  installationId: INSTALL,
+  locale: "pt-PT",
+} as const;
 
 describe("buildCreateGfAccountRequest", () => {
   test("POSTs /api/v2/users with both installation-id headers + Origin", () => {
@@ -15,10 +21,10 @@ describe("buildCreateGfAccountRequest", () => {
     expect(req.headers["Origin"]).toBe("spark://www.gameforge.com");
   });
 
-  test("body is email-first (not blackbox-first like sessions), locale defaults en-GB", () => {
+  test("body is email-first (not blackbox-first like sessions), locale sent verbatim", () => {
     // Key order matters — the capture test asserts byte-identity against the launcher.
     expect(buildCreateGfAccountRequest(base).body).toBe(
-      JSON.stringify({ email: "a@b.c", password: "pw", locale: "en-GB", blackbox: BB }),
+      JSON.stringify({ email: "a@b.c", password: "pw", locale: "pt-PT", blackbox: BB }),
     );
   });
 
