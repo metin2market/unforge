@@ -169,4 +169,4 @@ stays device-identifying: local, gitignored, never pasted in public. Every sink 
 `@logtape/redaction`; pass secrets as named fields, never interpolated into a message.
 
 There is no telemetry sink in the tool — unforge opens only the GameForge calls the flow needs. An
-embedder can pass its own sinks to `configureLogging({ sinks })`.
+embedder that wants its own sinks configures LogTape itself; unforge only emits.
