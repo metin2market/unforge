@@ -6,12 +6,10 @@
 
 import type { ClientVersion } from "./types.ts";
 
-const sha1 = (data: string | Uint8Array): string =>
+export const sha1 = (data: string | Uint8Array): string =>
   new Bun.CryptoHasher("sha1").update(data).digest("hex");
-const sha256 = (data: string | Uint8Array): string =>
+export const sha256 = (data: string | Uint8Array): string =>
   new Bun.CryptoHasher("sha256").update(data).digest("hex");
-
-export { sha1, sha256 };
 
 /** First decimal digit in a string, or undefined if it has none. */
 export function firstDigit(str: string): number | undefined {

@@ -5,13 +5,7 @@
 // verified — `thin/codes` 403s until then. See docs/protocol.md.
 
 import { z } from "zod";
-import {
-  BROWSER_USER_AGENT,
-  readJson,
-  SPARK_BASE,
-  SPARK_ORIGIN,
-  type SparkRequest,
-} from "../http.ts";
+import { readJson, SPARK_BASE, sparkHeaders, type SparkRequest } from "../http.ts";
 import { UnexpectedResponseError } from "../errors.ts";
 
 // Both optional: GF reports the *outcome* in these fields, so a body saying "not created" is a
@@ -39,19 +33,10 @@ export interface CreateGfAccountOptions extends Credentials {
 
 /** Build the registration request (pure — no network). */
 export function buildCreateGfAccountRequest(opts: CreateGfAccountOptions): SparkRequest {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent": BROWSER_USER_AGENT,
-    Origin: SPARK_ORIGIN,
-    "TNT-Installation-Id": opts.installationId,
-    "gf-installation-id": opts.installationId,
-  };
-  // The retry after a solved captcha carries the challenge id (absent on attempt 1).
-  if (opts.challengeId) headers["gf-challenge-id"] = opts.challengeId;
   return {
     url: `${SPARK_BASE}/api/v2/users`,
     method: "POST",
-    headers,
+    headers: sparkHeaders(opts),
     // Key order mirrors the launcher's request (email-first, unlike `sessions`).
     body: JSON.stringify({
       email: opts.email,

@@ -24,12 +24,6 @@ function defaultLogFile(): string {
 export interface ConfigureLoggingOptions {
   /** Drop the console threshold to `debug` (the `--verbose` flag). */
   verbose?: boolean;
-  /** Console threshold when not verbose. Default `"info"`. */
-  consoleLevel?: LogLevel;
-  /** Override the always-on log file. Default {@link defaultLogFile} / `$UNFORGE_LOG_FILE`. */
-  logFile?: string;
-  /** Extra sinks beyond console + file — e.g. serve's WebSocket sink. */
-  sinks?: Sink[];
 }
 
 /**
@@ -38,9 +32,9 @@ export interface ConfigureLoggingOptions {
  * that captures everything at `debug`+.
  */
 export async function configureLogging(opts: ConfigureLoggingOptions = {}): Promise<void> {
-  const consoleLevel: LogLevel = opts.verbose ? "debug" : (opts.consoleLevel ?? "info");
+  const consoleLevel: LogLevel = opts.verbose ? "debug" : "info";
 
-  const logFile = opts.logFile ?? process.env.UNFORGE_LOG_FILE ?? defaultLogFile();
+  const logFile = process.env.UNFORGE_LOG_FILE ?? defaultLogFile();
   const logDir = dirname(logFile);
   if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
   // bufferSize 0: each line is written straight through, so a one-shot CLI that exits
@@ -53,20 +47,16 @@ export async function configureLogging(opts: ConfigureLoggingOptions = {}): Prom
     bufferSize: 0,
   });
 
-  const extra = opts.sinks ?? [];
-  const extraNames = extra.map((_, i) => `sink${i}`);
-
   await configure({
     reset: true,
     sinks: {
       console: withFilter(redacted(getConsoleSink()), consoleLevel),
       file: redacted(file),
-      ...Object.fromEntries(extra.map((s, i) => [extraNames[i], redacted(s)])),
     },
     loggers: [
       // `trace` (the request trace) is below `debug`, so it reaches the file but is filtered
       // out of the console by `consoleLevel` — bodies would drown the terminal, --verbose or not.
-      { category: ["unforge"], lowestLevel: "trace", sinks: ["console", "file", ...extraNames] },
+      { category: ["unforge"], lowestLevel: "trace", sinks: ["console", "file"] },
       { category: ["logtape", "meta"], lowestLevel: "warning", sinks: [] },
     ],
   });

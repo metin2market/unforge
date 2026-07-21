@@ -7,14 +7,7 @@
 // identity) per call. Reusing the sessions blackbox was the old "iovation is walled" bug.
 
 import { z } from "zod";
-import {
-  BROWSER_USER_AGENT,
-  readJson,
-  SPARK_BASE,
-  SPARK_ORIGIN,
-  sparkFetch,
-  type SparkRequest,
-} from "../http.ts";
+import { readJson, SPARK_BASE, sparkFetch, sparkHeaders, type SparkRequest } from "../http.ts";
 import { AttestationRejectedError } from "../errors.ts";
 
 const AttestResponse = z.object({ status: z.string() });
@@ -32,13 +25,7 @@ export function buildAttestRequest(opts: AttestDeviceOptions): SparkRequest {
   return {
     url: `${SPARK_BASE}/api/v1/auth/iovation`,
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${opts.token}`,
-      Origin: SPARK_ORIGIN,
-      "User-Agent": BROWSER_USER_AGENT,
-      "TNT-Installation-Id": opts.installationId,
-    },
+    headers: sparkHeaders({ ...opts, gfInstallationId: false }),
     body: JSON.stringify({
       accountId: opts.accountId,
       blackbox: opts.blackbox,

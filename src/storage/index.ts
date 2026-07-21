@@ -21,5 +21,5 @@ export type { CachedToken, StoredGameAccount } from "./store-file.ts";
 export { unforgeDataDir, unforgeDataFile } from "./paths.ts";
 export { sealSecret, unsealSecret } from "./seal.ts";
 
-export { openConfig, defaultConfigPath, CONFIG_VERSION } from "./config.ts";
+export { openConfig, defaultConfigPath } from "./config.ts";
 export type { ConfigStore, GameDirs, UnforgeConfig } from "./config.ts";

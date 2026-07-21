@@ -11,17 +11,18 @@ import {
   readJson,
   safeText,
   SPARK_BASE,
-  SPARK_ORIGIN,
   sparkFetch,
+  sparkHeaders,
+  SPARK_ORIGIN,
   type SparkRequest,
 } from "../http.ts";
 import {
   CaptchaRequiredError,
   InvalidCredentialsError,
+  parseSparkErrorBody,
   UnexpectedResponseError,
 } from "../errors.ts";
-import { stringArrayField } from "../../util/index.ts";
-import { sendWithChallenge } from "./challenge.ts";
+import { challengeIdFrom, sendWithChallenge } from "./challenge.ts";
 import type { Credentials } from "../types.ts";
 
 export interface CreateSessionOptions extends Credentials {
@@ -42,19 +43,10 @@ const SessionResponse = z.object({ token: z.string() });
 
 /** Build the `sessions` request (pure — no network). */
 export function buildSessionRequest(opts: CreateSessionOptions): SparkRequest {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent": BROWSER_USER_AGENT,
-    Origin: SPARK_ORIGIN,
-    "TNT-Installation-Id": opts.installationId,
-    "gf-installation-id": opts.installationId,
-  };
-  // The retry after a solved captcha carries the challenge id (absent on attempt 1).
-  if (opts.challengeId) headers["gf-challenge-id"] = opts.challengeId;
   return {
     url: `${SPARK_BASE}/api/v2/authProviders/credentials/sessions`,
     method: "POST",
-    headers,
+    headers: sparkHeaders(opts),
     // Key order mirrors the launcher's request (blackbox first) — verified against
     // a capture in requests.capture.test.ts.
     body: JSON.stringify({
@@ -115,12 +107,12 @@ export async function logout(token: string, installationId: string): Promise<voi
 // 409 means either a captcha gate (carried in the gf-challenge-id header) or
 // bad credentials (flagged in the body's errorTypes).
 async function classifyConflict(res: Response): Promise<Error> {
-  const challenge = res.headers.get("gf-challenge-id");
-  if (challenge) return new CaptchaRequiredError(challenge.split(";")[0]);
+  const challenge = await challengeIdFrom(res);
+  if (challenge) return new CaptchaRequiredError(challenge);
 
-  const body: unknown = await res.json().catch(() => ({}));
-  if (stringArrayField(body, "errorTypes")?.includes("CREDENTIALS_INVALID")) {
+  const body = await safeText(res);
+  if (parseSparkErrorBody(body)?.errorTypes?.includes("CREDENTIALS_INVALID")) {
     return new InvalidCredentialsError("credentials rejected (HTTP 409 CREDENTIALS_INVALID)");
   }
-  return new UnexpectedResponseError(res.status, res.statusText, JSON.stringify(body));
+  return new UnexpectedResponseError(res.status, res.statusText, body);
 }

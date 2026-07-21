@@ -2,7 +2,7 @@
 // `gsl.ini` `region=` key, and the `gameId.<region>` suffix `thin/codes` accepts.
 //
 // A table because neither side derives from the other, and why these 13:
-// docs/protocol.md#the-region-rule.
+// docs/regions.md#the-region-rule.
 
 // `as const` so both halves become types — a new market is a one-line edit.
 const REGION_BY_GROUP = {

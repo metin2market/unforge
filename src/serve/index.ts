@@ -45,6 +45,21 @@ const fail = (err: unknown): Response => {
   return json({ error: summary, kind, fields }, 400);
 };
 
+/**
+ * Wrap a route so its result is JSON and any throw leaves as the UI's error shape. Every route
+ * needs it: one that answered a raw 500 would bypass `describeError`, and the UI renders
+ * nothing else.
+ */
+const route =
+  <P extends string>(handler: (req: Bun.BunRequest<P>) => unknown) =>
+  async (req: Bun.BunRequest<P>): Promise<Response> => {
+    try {
+      return json(await handler(req));
+    } catch (err) {
+      return fail(err);
+    }
+  };
+
 /** Start the local web UI. Resolves once the server is listening. */
 export async function serve({
   open = false,
@@ -60,6 +75,9 @@ export async function serve({
 
   // Push every app event to every open window, so the UI never polls.
   app.subscribe((event) => {
+    // Every store write raises an event, including through the grace window after the last
+    // window closes — with nobody listening there is nothing to map or serialize.
+    if (clients.size === 0) return;
     const payload = JSON.stringify(uiEvent(event));
     for (const ws of clients) ws.send(payload);
   });
@@ -81,44 +99,28 @@ export async function serve({
           // The user brings email + password; `auth.login` authenticates (proving the
           // credentials), mints a stable+distinct device, discovers the game accounts, and
           // seals the lot. The password never comes back out — reads carry no secrets.
-          POST: async (req) => {
+          POST: route(async (req) => {
             const body: unknown = await req.json();
             const email = stringField(body, "email");
             const password = stringField(body, "password");
-            if (!email || !password) {
-              return json({ error: "email and password required" }, 400);
-            }
-            try {
-              await app.auth.login({ email, password });
-            } catch (err) {
-              return fail(err);
-            }
-            return json(uiSnapshot(app.snapshot()));
-          },
+            if (!email || !password) throw new Error("email and password required");
+            await app.auth.login({ email, password });
+            return uiSnapshot(app.snapshot());
+          }),
         },
 
         "/api/accounts/:id": {
-          DELETE: async (req) => {
-            try {
-              await app.auth.logout(req.params.id);
-            } catch (err) {
-              return fail(err);
-            }
-            return json(uiSnapshot(app.snapshot()));
-          },
+          DELETE: route(async (req) => {
+            await app.auth.logout(req.params.id);
+            return uiSnapshot(app.snapshot());
+          }),
         },
 
         // Launch a game account: auth, mint a code, spawn the client, and answer the handoff
         // pipe so it logs itself in. Returns as soon as the client process exists — progress
         // after that arrives as `launch` events on the socket.
         "/api/game-accounts/:ref/launch": {
-          POST: async (req) => {
-            try {
-              return json(await app.launches.start(req.params.ref));
-            } catch (err) {
-              return fail(err);
-            }
-          },
+          POST: route((req) => app.launches.start(req.params.ref)),
         },
       },
 

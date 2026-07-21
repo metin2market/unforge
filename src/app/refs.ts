@@ -36,6 +36,14 @@ export function gfHandle(a: { email: string; alias?: string }): string {
 }
 
 /**
+ * Whether a lowercased ref names this account's handle. Both the stored alias and the derived
+ * one match: setting an alias adds a way to reach the account, it doesn't retire the old one.
+ */
+function matchesHandle(a: GfAccount, lc: string): boolean {
+  return a.alias?.toLowerCase() === lc || gfAlias(a.email).toLowerCase() === lc;
+}
+
+/**
  * Validate a proposed alias for `selfId`: non-empty, no whitespace, not purely numeric
  * (so it can't collide with a picker's row numbers), and not already resolving to a
  * *different* account. Throws with a clear reason; returns the trimmed alias.
@@ -47,11 +55,7 @@ export function validateAlias(accounts: GfAccount[], selfId: string, alias: stri
   if (/^\d+$/.test(value)) throw new Error("alias cannot be purely numeric");
   const lc = value.toLowerCase();
   const clash = accounts.find(
-    (a) =>
-      a.id !== selfId &&
-      (a.email.toLowerCase() === lc ||
-        gfHandle(a).toLowerCase() === lc ||
-        gfAlias(a.email).toLowerCase() === lc),
+    (a) => a.id !== selfId && (a.email.toLowerCase() === lc || matchesHandle(a, lc)),
   );
   if (clash) throw new Error(`alias "${value}" already refers to ${clash.email}`);
   return value;
@@ -64,13 +68,9 @@ export function validateAlias(accounts: GfAccount[], selfId: string, alias: stri
  */
 export function resolveGfAccount(accounts: GfAccount[], ref: string): GfAccount {
   const lc = ref.toLowerCase();
+  // `startsWith` subsumes an exact id match — a full id is just its own longest prefix.
   const matches = accounts.filter(
-    (a) =>
-      a.email.toLowerCase() === lc ||
-      gfHandle(a).toLowerCase() === lc ||
-      gfAlias(a.email).toLowerCase() === lc ||
-      a.id === ref ||
-      a.id.startsWith(ref),
+    (a) => a.email.toLowerCase() === lc || matchesHandle(a, lc) || a.id.startsWith(ref),
   );
   if (matches.length === 0) throw new Error(`no GameForge account matches "${ref}"`);
   if (matches.length > 1) {
@@ -95,11 +95,7 @@ export function resolveGameAccount(accounts: GfAccount[], ref: string): Resolved
   const hits: ResolvedGameAccount[] = [];
   for (const account of accounts) {
     for (const gameAccount of account.gameAccounts) {
-      if (
-        gameAccount.displayName.toLowerCase() === lc ||
-        gameAccount.accountId === ref ||
-        gameAccount.accountId.startsWith(ref)
-      ) {
+      if (gameAccount.displayName.toLowerCase() === lc || gameAccount.accountId.startsWith(ref)) {
         hits.push({ gfId: account.id, gameAccount });
       }
     }

@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  errnoCode,
-  errorMessage,
-  isRecord,
-  parseJson,
-  parseJsonObject,
-  stringArrayField,
-  stringField,
-} from "./index.ts";
+import { errnoCode, errorMessage, isRecord, parseJson, stringField } from "./index.ts";
 
 describe("isRecord", () => {
   test("accepts plain objects, rejects the things that also typeof as object", () => {
@@ -26,13 +18,6 @@ describe("parseJson", () => {
     expect(parseJson('{"a":1}')).toEqual({ a: 1 });
     expect(parseJson("<html>nope</html>")).toBeUndefined();
     expect(parseJson("")).toBeUndefined();
-  });
-
-  test("parseJsonObject rejects valid JSON that isn't an object", () => {
-    expect(parseJsonObject('{"a":1}')).toEqual({ a: 1 });
-    expect(parseJsonObject("[1,2]")).toBeUndefined();
-    expect(parseJsonObject('"a string"')).toBeUndefined();
-    expect(parseJsonObject("null")).toBeUndefined();
   });
 });
 
@@ -68,13 +53,5 @@ describe("field readers", () => {
     expect(stringField({ a: 1 }, "a")).toBeUndefined();
     expect(stringField({}, "a")).toBeUndefined();
     expect(stringField(null, "a")).toBeUndefined();
-  });
-
-  test("stringArrayField requires every element to be a string", () => {
-    expect(stringArrayField({ t: ["a", "b"] }, "t")).toEqual(["a", "b"]);
-    expect(stringArrayField({ t: [] }, "t")).toEqual([]);
-    expect(stringArrayField({ t: ["a", 2] }, "t")).toBeUndefined();
-    expect(stringArrayField({ t: "a" }, "t")).toBeUndefined();
-    expect(stringArrayField(undefined, "t")).toBeUndefined();
   });
 });

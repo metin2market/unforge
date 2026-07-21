@@ -95,12 +95,13 @@ export class AttestationRejectedError extends UnforgeError {
 
 /**
  * Something else already owns the handoff pipe — in practice the running GameForge launcher.
- * It has to be closed: the pipe is a machine-wide singleton, so launcher-less means replacing it.
+ * The pipe is a machine-wide singleton, so launcher-less means replacing whoever holds it.
+ * The remedy a person acts on is worded in `describeError`.
  */
 export class PipeInUseError extends UnforgeError {
   override name = "PipeInUseError";
   constructor(readonly path: string) {
-    super(`${path} is already in use — close the GameForge launcher (gfclient.exe) and retry`);
+    super(`${path} is already in use`);
   }
 }
 

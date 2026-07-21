@@ -22,18 +22,9 @@ function unwrap<T>(value: T | symbol): T {
 }
 
 /** Ask for a line of visible text. `undefined` when non-interactive. */
-export async function askText(
-  message: string,
-  opts: { placeholder?: string; validate?: (value: string) => string | undefined } = {},
-): Promise<string | undefined> {
+export async function askText(message: string): Promise<string | undefined> {
   if (!interactive()) return undefined;
-  return unwrap(
-    await text({
-      message,
-      placeholder: opts.placeholder,
-      validate: opts.validate ? (v) => opts.validate!(v ?? "") : undefined,
-    }),
-  );
+  return unwrap(await text({ message }));
 }
 
 /** Ask for a secret without echoing it. `undefined` when non-interactive. */

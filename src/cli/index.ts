@@ -17,7 +17,16 @@ import { Command } from "commander";
 import { getLogger } from "@logtape/logtape";
 import { VERSION } from "../index.ts";
 import { assertRegion, knownRegions, UnexpectedResponseError, type Region } from "../core/index.ts";
-import { describeError, regionLabel } from "../app/index.ts";
+import {
+  binName,
+  configureLogging,
+  describeError,
+  gfHandle,
+  installFetchTrace,
+  openApp,
+  regionLabel,
+  resolveGfAccount,
+} from "../app/index.ts";
 import type { GfAccount } from "../storage/index.ts";
 import { detachOwnConsole } from "./hide-console.ts";
 import { askConfirm, askPassword, askText } from "./prompts.ts";
@@ -28,14 +37,8 @@ import { pickGameAccount, pickGfAccount, pickRegion } from "./pick.ts";
 // cleanly and secrets never reach the log file. See docs/architecture.md (Logging).
 const log = getLogger(["unforge", "cli"]);
 
-// The app touches the filesystem (and DPAPI), so it's opened lazily inside the actions that
-// need it — `serve`, `--help` and `--version` stay light. One object holds the store, the
-// config, and the handoff pipe for the life of the command.
-async function app() {
-  const { openApp } = await import("../app/index.ts");
-  return openApp();
-}
-
+// Imported dynamically: `serve` bundles the React UI and its HTML entry, which no other
+// command needs loaded.
 async function startServe(opts: {
   open: boolean;
   exitOnClose: boolean;
@@ -90,6 +93,13 @@ function sessionLabel(expiresAt?: number): string {
   return expiresAt > Date.now() ? `valid until ${fmtTime(expiresAt)}` : "session expired";
 }
 
+/** One line per game account — `account list` and `account sync` print the same rows. */
+function printAccountRows(rows: { displayName: string; accountGroup: string; gfEmail: string }[]) {
+  for (const r of rows) {
+    console.log(`${r.displayName}  [${regionLabel(r.accountGroup)}]  ·  ${r.gfEmail}`);
+  }
+}
+
 const program = new Command();
 
 /** The global `--verbose` flag, readable from any subcommand's action. */
@@ -104,7 +114,6 @@ program
   // Wire the logger + trace once before any command runs, so every command's status/error
   // output has sinks (unconfigured, LogTape is a no-op). `serve` reconfigures its own sinks.
   .hook("preAction", async () => {
-    const { configureLogging, installFetchTrace } = await import("../app/index.ts");
     await configureLogging({ verbose: verbose() });
     // Always traced, no flag: a GameForge refusal is usually only diagnosable from the run that
     // hit it, and that run is over by the time anyone thinks to ask for a trace. Goes into the
@@ -125,7 +134,7 @@ program
   .description("Auth + spawn the game client into a game account (Windows)")
   .action(
     run(async (ref: string | undefined) => {
-      const a = await app();
+      const a = await openApp();
       const target = ref ?? (await pickGameAccount(a.accounts.list()));
       const launch = await a.launches.start(target);
       const how = launch.elevated
@@ -169,15 +178,15 @@ account
   .option("--gf <gf>", "only this GameForge account (email, handle, or id)")
   .action(
     run(async (opts: { gf?: string }) => {
-      const a = await app();
+      const a = await openApp();
       const rows = a.accounts.list(opts.gf);
       if (rows.length === 0) {
-        console.log("no game accounts — run `unforge account sync` to fetch them from GameForge");
+        console.log(
+          `no game accounts — run \`${binName()} account sync\` to fetch them from GameForge`,
+        );
         return;
       }
-      for (const r of rows) {
-        console.log(`${r.displayName}  [${regionLabel(r.accountGroup)}]  ·  ${r.gfEmail}`);
-      }
+      printAccountRows(rows);
     }),
   );
 
@@ -187,11 +196,9 @@ account
   .option("--gf <gf>", "only this GameForge account (email, handle, or id; omit for all)")
   .action(
     run(async (opts: { gf?: string }) => {
-      const a = await app();
+      const a = await openApp();
       const rows = await a.accounts.sync(opts.gf);
-      for (const r of rows) {
-        console.log(`${r.displayName}  [${regionLabel(r.accountGroup)}]  ·  ${r.gfEmail}`);
-      }
+      printAccountRows(rows);
     }),
   );
 
@@ -206,7 +213,7 @@ account
   )
   .action(
     run(async (displayName: string | undefined, opts: { gf?: string; region?: string }) => {
-      const a = await app();
+      const a = await openApp();
       // argv is where a region stops being an arbitrary string — refuse here, before anything is
       // chosen, so the app below takes a `Region` and never re-checks one.
       let explicit: Region | undefined;
@@ -240,7 +247,7 @@ account
   .description("Mint + print a one-time login code (test / diagnostic)")
   .action(
     run(async (ref: string) => {
-      const a = await app();
+      const a = await openApp();
       const { code } = await a.accounts.mintCode(ref);
       // The login code is the command's result (and a secret) — stdout only, never the log.
       console.log(code);
@@ -284,7 +291,7 @@ auth
   .option("--alias <alias>", "short handle to store for this account (else derived from the email)")
   .action(
     run(async (opts: { email?: string; password?: string; alias?: string }) => {
-      const a = await app();
+      const a = await openApp();
       const registered = await a.auth.register({
         ...(await credentials(opts)),
         alias: opts.alias,
@@ -306,7 +313,7 @@ auth
   .option("--alias <alias>", "short handle to store for this account (else derived from the email)")
   .action(
     run(async (opts: { email?: string; password?: string; alias?: string }) => {
-      const a = await app();
+      const a = await openApp();
       const loggedIn = await a.auth.login({
         ...(await credentials(opts)),
         alias: opts.alias,
@@ -320,10 +327,10 @@ auth
   .description("List GameForge accounts and their session validity")
   .action(
     run(async () => {
-      const [a, { gfHandle }] = await Promise.all([app(), import("../app/index.ts")]);
+      const a = await openApp();
       const rows = a.auth.list();
       if (rows.length === 0) {
-        console.log("no GameForge accounts — run `unforge auth login`");
+        console.log(`no GameForge accounts — run \`${binName()} auth login\``);
         return;
       }
       for (const r of rows) {
@@ -341,7 +348,7 @@ auth
   .description("Set or clear a GameForge account's short handle")
   .action(
     run(async (ref: string, alias: string | undefined) => {
-      const a = await app();
+      const a = await openApp();
       const res = await a.auth.setAlias(ref, alias ?? null);
       log.info("{email} → handle '{handle}'", { email: res.email, handle: res.handle });
     }),
@@ -354,10 +361,7 @@ auth
   .option("-y, --yes", "skip the confirmation prompt")
   .action(
     run(async (ref: string, opts: { yes?: boolean }) => {
-      const [a, { gfHandle, resolveGfAccount }] = await Promise.all([
-        app(),
-        import("../app/index.ts"),
-      ]);
+      const a = await openApp();
       const target = resolveGfAccount(a.auth.list(), ref);
       if (!(await confirmDestructive(opts.yes, `Forget ${gfHandle(target)} (${target.email})?`))) {
         return;
@@ -377,7 +381,7 @@ device
   .description("Show the device profile, installation id, and identity")
   .action(
     run(async (ref: string) => {
-      const a = await app();
+      const a = await openApp();
       const { email, device: d } = a.auth.device(ref);
       const p = d.profile;
       console.log(`account:        ${email}`);
@@ -400,10 +404,7 @@ device
   .option("-y, --yes", "skip the confirmation prompt")
   .action(
     run(async (ref: string, opts: { yes?: boolean }) => {
-      const [a, { gfHandle, resolveGfAccount }] = await Promise.all([
-        app(),
-        import("../app/index.ts"),
-      ]);
+      const a = await openApp();
       const target = resolveGfAccount(a.auth.list(), ref);
       const msg = `Roll a new device for ${gfHandle(target)}? The old fingerprint is retired.`;
       if (!(await confirmDestructive(opts.yes, msg))) return;
@@ -430,7 +431,7 @@ configSet
     run(async (path: string, opts: { region?: string }) => {
       const { discoverGameDirs } = await import("../launch/index.ts");
       const found = discoverGameDirs(path);
-      const a = await app();
+      const a = await openApp();
       const entries = found.map(({ region, dir }): [Region, string] => {
         const r = region ?? opts.region;
         if (!r) throw new Error(`could not infer a region for ${dir} — pass --region <region>`);
@@ -449,7 +450,7 @@ config
   .description("Show the current machine-level config")
   .action(
     run(async () => {
-      const a = await app();
+      const a = await openApp();
       const gameDirs = a.config.gameDirs();
       const regions = a.config.regions();
       if (regions.length === 0) {

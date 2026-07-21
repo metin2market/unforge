@@ -7,7 +7,6 @@ import {
   discoverGameDirs,
   expandHome,
   findClientDir,
-  findClientDirAnywhere,
   spawnClient,
 } from "./index.ts";
 
@@ -101,9 +100,9 @@ describe("findClientDir", () => {
     expect(() => findClientDir(join(dir, "nope"), "pt-PT")).toThrow(/does not exist/);
   });
 
-  test("findClientDirAnywhere takes the shallowest hit when no region is known", () => {
+  test("takes the shallowest hit when no region is known", () => {
     touch("game", "client", "bin", exe);
-    expect(findClientDirAnywhere(dir)).toBe(join(dir, "game", "client", "bin"));
+    expect(findClientDir(dir)).toBe(join(dir, "game", "client", "bin"));
   });
 
   test("discoverGameDirs fills every region folder under the root", () => {

@@ -24,7 +24,6 @@ export type GameDirs = Partial<Record<Region, string>>;
  * `account create` about what's installed.
  */
 export const UnforgeConfig = z.object({
-  version: z.number().default(() => CONFIG_VERSION),
   gameDirs: z
     .record(z.string(), z.string())
     .transform(
@@ -35,15 +34,13 @@ export const UnforgeConfig = z.object({
 });
 export type UnforgeConfig = z.infer<typeof UnforgeConfig>;
 
-export const CONFIG_VERSION = 1;
-
 /** `%LOCALAPPDATA%\unforge\config.json` — the default config location (per-user). */
 export function defaultConfigPath(): string {
   return unforgeDataFile("config.json");
 }
 
 function emptyConfig(): UnforgeConfig {
-  return { version: CONFIG_VERSION, gameDirs: {} };
+  return { gameDirs: {} };
 }
 
 export interface ConfigStore {

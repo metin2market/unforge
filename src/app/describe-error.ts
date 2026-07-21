@@ -5,6 +5,7 @@
 
 import {
   AttestationRejectedError,
+  CaptchaRequiredError,
   CodeNotAllowedError,
   InvalidCredentialsError,
   NetworkError,
@@ -19,6 +20,7 @@ import { regionLabel } from "./region-text.ts";
 export type ErrorKind =
   | "validation"
   | "rate-limited"
+  | "captcha-required"
   | "captcha-failed"
   | "network"
   | "invalid-credentials"
@@ -107,8 +109,23 @@ export function describeError(err: unknown): ErrorDescription {
       summary: "GameForge rejected the email or password for this login.",
     };
   }
+  // A challenge only reaches a caller when the in-flow solver couldn't clear it.
+  if (err instanceof CaptchaRequiredError) {
+    return {
+      kind: "captcha-required",
+      summary:
+        "GameForge demanded a captcha that unforge couldn't clear automatically. Wait a moment " +
+        "and try again — these fire under risk-scoring and usually pass on a later attempt.",
+    };
+  }
   if (err instanceof PipeInUseError) {
-    return { kind: "pipe-in-use", summary: err.message };
+    return {
+      kind: "pipe-in-use",
+      summary:
+        `Another program already owns the ${err.path} pipe — in practice the GameForge ` +
+        "launcher. Close it and try again: the pipe is machine-wide, so launcher-less means " +
+        "replacing it.",
+    };
   }
   // A 429 with a Retry-After can say *how long*; without one, all we honestly have is "a while".
   if (err instanceof RateLimitedError) {

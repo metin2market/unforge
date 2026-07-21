@@ -3,29 +3,30 @@
 // ticket), so it's all unit-testable.
 // See docs/launch.md.
 
+import { METIN2_GAME_ID } from "../metin2.ts";
 import type { LaunchTicket, RpcRequest } from "./types.ts";
 
 /** The pipe the launcher hosts and the client connects to. One per machine. */
 export const HANDOFF_PIPE_NAME = "GameforgeClientJSONRPC";
 
-/** Metin2's `gsl.ini` gameUuid — the client's `_TNT_CLIENT_APPLICATION_ID`. */
-export const METIN2_APPLICATION_ID = "fab180a3-cd65-4b7e-bd0e-2ef77fd0c258";
+/**
+ * Metin2's `gsl.ini` gameUuid — the client's `_TNT_CLIENT_APPLICATION_ID`. One identifier under
+ * two of GameForge's names: Spark calls it `gameId`, the pipe handoff calls it the application id.
+ */
+export const METIN2_APPLICATION_ID = METIN2_GAME_ID;
 
 export const CLIENT_EXE = "metin2client.exe";
 
 export const pipePath = (name: string = HANDOFF_PIPE_NAME): string => `\\\\.\\pipe\\${name}`;
 
 /** How the client is invoked: `metin2client.exe --gf`, session in the environment. */
-export function buildInvocation({
-  sessionId,
-  applicationId = METIN2_APPLICATION_ID,
-}: {
-  sessionId: string;
-  applicationId?: string;
-}): { args: string[]; env: Record<string, string> } {
+export function buildInvocation(sessionId: string): {
+  args: string[];
+  env: Record<string, string>;
+} {
   return {
     args: ["--gf"],
-    env: { _TNT_SESSION_ID: sessionId, _TNT_CLIENT_APPLICATION_ID: applicationId },
+    env: { _TNT_SESSION_ID: sessionId, _TNT_CLIENT_APPLICATION_ID: METIN2_APPLICATION_ID },
   };
 }
 

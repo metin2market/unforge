@@ -35,8 +35,6 @@ export type LaunchStatus =
 /** Plain data: a long-lived host has to be able to serialize this to a UI. */
 export interface LaunchState {
   id: string;
-  /** The game account's ref, as the caller gave it. */
-  accountRef: string;
   account: StoredGameAccount;
   status: LaunchStatus;
   /** The first of two processes — the client re-execs itself. Absent when elevated. */

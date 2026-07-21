@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { requestLoginCode } from "./codes.ts";
 import { CodeNotAllowedError, UnexpectedResponseError } from "../errors.ts";
-import { METIN2_GAME_ID } from "./create-account.ts";
+import { METIN2_GAME_ID } from "../metin2.ts";
 import type { GameAccount } from "../types.ts";
 
 // Exercises how requestLoginCode maps GF's responses to typed errors, by stubbing

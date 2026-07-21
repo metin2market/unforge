@@ -3,19 +3,10 @@
 // Useful for multibox: one GF login can mint several game accounts.
 
 import { z } from "zod";
-import {
-  BROWSER_USER_AGENT,
-  readJson,
-  SPARK_BASE,
-  SPARK_ORIGIN,
-  type SparkRequest,
-} from "../http.ts";
+import { readJson, SPARK_BASE, sparkHeaders, type SparkRequest } from "../http.ts";
+import { METIN2_GAME_ENVIRONMENT_ID, METIN2_GAME_ID } from "../metin2.ts";
 import type { AccountGroup } from "../regions.ts";
 import { sendWithChallenge } from "./challenge.ts";
-
-// Metin2's identifiers (pt environment), from a captured creation request.
-export const METIN2_GAME_ID = "fab180a3-cd65-4b7e-bd0e-2ef77fd0c258";
-export const METIN2_GAME_ENVIRONMENT_ID = "5401ee5b-1316-41ae-a628-73377b8676ba";
 
 export interface CreateGameAccountOptions {
   token: string;
@@ -59,20 +50,10 @@ export type CreatedGameAccount = z.infer<typeof CreatedGameAccount>;
 
 /** Build the account-creation request (pure — no network). */
 export function buildCreateAccountRequest(opts: CreateGameAccountOptions): SparkRequest {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${opts.token}`,
-    Origin: SPARK_ORIGIN,
-    "User-Agent": BROWSER_USER_AGENT,
-    "TNT-Installation-Id": opts.installationId,
-    "gf-installation-id": opts.installationId,
-  };
-  // Present only on a retry after a solved captcha (create-account is PoW-gated too).
-  if (opts.challengeId) headers["gf-challenge-id"] = opts.challengeId;
   return {
     url: `${SPARK_BASE}/api/v2/users/me/accounts`,
     method: "POST",
-    headers,
+    headers: sparkHeaders(opts),
     body: JSON.stringify({
       displayName: opts.displayName,
       gameId: opts.gameId ?? METIN2_GAME_ID,

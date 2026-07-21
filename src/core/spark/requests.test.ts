@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { buildSessionRequest } from "./sessions.ts";
 import { buildAccountsRequest } from "./accounts.ts";
 import { buildAttestRequest } from "./iovation.ts";
-import { buildCreateAccountRequest, METIN2_GAME_ID } from "./create-account.ts";
+import { buildCreateAccountRequest } from "./create-account.ts";
+import { METIN2_GAME_ID } from "../metin2.ts";
 import { buildCodeRequest } from "./codes.ts";
 import type { GameAccount } from "../types.ts";
 

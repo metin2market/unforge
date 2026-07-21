@@ -16,7 +16,7 @@ import { parseJson } from "../util/index.ts";
  * only exists so a black-holed connection can't hang a launch forever, holding its handoff
  * pipe (and the code it already minted) open with it.
  */
-export const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export const SPARK_BASE = "https://spark.gameforge.com";
 
@@ -28,6 +28,38 @@ export const BROWSER_USER_AGENT =
 
 // The launcher's web app runs under this origin; the auth API expects it.
 export const SPARK_ORIGIN = "spark://www.gameforge.com";
+
+export interface SparkHeaderOptions {
+  installationId: string;
+  /** Bearer token — set on the endpoints that authenticate with one. */
+  token?: string;
+  /** Solved PoW id, set on the retry after a 409 (see spark/challenge.ts). */
+  challengeId?: string;
+  /**
+   * GF reads the installation id under two names and the launcher sends both — except on
+   * `iovation`, which carries `TNT-Installation-Id` alone. Matched against a capture.
+   */
+  gfInstallationId?: boolean;
+}
+
+/**
+ * The header set the launcher sends on every JSON Spark call: its UA and origin, the
+ * installation id, the bearer token where there is one, and the solved-challenge id on a
+ * captcha retry. `thin/codes` is the one endpoint that doesn't use this — it sends no
+ * `Origin` and a bespoke account-hash UA (see spark/codes.ts).
+ */
+export function sparkHeaders(opts: SparkHeaderOptions): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": BROWSER_USER_AGENT,
+    Origin: SPARK_ORIGIN,
+    "TNT-Installation-Id": opts.installationId,
+  };
+  if (opts.gfInstallationId !== false) headers["gf-installation-id"] = opts.installationId;
+  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+  if (opts.challengeId) headers["gf-challenge-id"] = opts.challengeId;
+  return headers;
+}
 
 /**
  * A fully-described Spark HTTP request. Each `spark/*` step builds one of these

@@ -29,8 +29,11 @@ function resolveBase(gameDir: string): string {
 const shallowest = (hits: string[]): string =>
   hits.reduce((best, h) => (h.length < best.length ? h : best));
 
+/** How deep the recursive fallback search descends before giving up. */
+const MAX_SEARCH_DEPTH = 4;
+
 /** Every folder holding the client exe under `base`, depth-bounded. */
-function clientDirsUnder(base: string, maxDepth: number): string[] {
+function clientDirsUnder(base: string): string[] {
   const hits: string[] = [];
   const walk = (dir: string, depth: number): void => {
     let entries: Dirent[];
@@ -41,7 +44,7 @@ function clientDirsUnder(base: string, maxDepth: number): string[] {
       return; // unreadable dir — skip
     }
     if (entries.some((e) => e.name === CLIENT_EXE)) hits.push(dir);
-    if (depth >= maxDepth) return;
+    if (depth >= MAX_SEARCH_DEPTH) return;
     for (const e of entries) {
       if (e.isDirectory()) walk(join(dir, e.name), depth + 1);
     }
@@ -52,30 +55,22 @@ function clientDirsUnder(base: string, maxDepth: number): string[] {
 }
 
 /**
- * Locate the folder holding `metin2client.exe` for a region, under a (possibly imprecise) game
- * dir. Tries the dir itself, then a `<region>` subfolder, then a bounded recursive search
- * preferring a hit whose path names the region. Expands `~`; throws if nothing is found.
+ * Locate the folder holding `metin2client.exe` under a (possibly imprecise) game dir. Tries the
+ * dir itself, then a `<region>` subfolder, then a bounded recursive search preferring a hit whose
+ * path names the region. Expands `~`; throws if nothing is found.
  *
- * `region` is required — preferring its folder over the box's other installs is the whole job.
+ * Pass `region` whenever it is known: a box with several installs resolves the same tree to a
+ * different client per account. Omitting it is for `config set game-dir`, which is discovering
+ * what's on the box and has nothing to prefer, so the shallowest hit wins.
  */
-export function findClientDir(gameDir: string, region: Region, maxDepth = 4): string {
+export function findClientDir(gameDir: string, region?: Region): string {
   const base = resolveBase(gameDir);
   if (existsSync(join(base, CLIENT_EXE))) return base;
-  if (existsSync(join(base, region, CLIENT_EXE))) return join(base, region);
+  if (region && existsSync(join(base, region, CLIENT_EXE))) return join(base, region);
 
-  const hits = clientDirsUnder(base, maxDepth);
-  const byRegion = hits.find((h) => h.toLowerCase().includes(region.toLowerCase()));
-  return byRegion ?? shallowest(hits);
-}
-
-/**
- * Locate a client dir when no region is known yet — `config set game-dir` discovering what's on
- * the box. Takes the shallowest hit, since there is nothing to prefer.
- */
-export function findClientDirAnywhere(gameDir: string, maxDepth = 4): string {
-  const base = resolveBase(gameDir);
-  if (existsSync(join(base, CLIENT_EXE))) return base;
-  return shallowest(clientDirsUnder(base, maxDepth));
+  const hits = clientDirsUnder(base);
+  const byRegion = region && hits.find((h) => h.toLowerCase().includes(region.toLowerCase()));
+  return byRegion || shallowest(hits);
 }
 
 /**
@@ -118,7 +113,7 @@ export function discoverGameDirs(gamePath: string): DiscoveredClient[] {
 
   // No region-named folders — search the whole tree (no region to prefer), then infer one from
   // the folder name if it fits.
-  const dir = findClientDirAnywhere(base);
+  const dir = findClientDir(base);
   const b = basename(dir);
   return [{ region: isRegion(b) ? b : undefined, dir }];
 }
@@ -209,7 +204,7 @@ function spawnElevated(
  */
 export async function spawnClient({ dir, sessionId }: SpawnClientOptions): Promise<SpawnResult> {
   if (process.platform !== "win32") throw new Error(`the handoff is Windows-only (${CLIENT_EXE})`);
-  const { args, env } = buildInvocation({ sessionId });
+  const { args, env } = buildInvocation(sessionId);
   try {
     // stdio all-"ignore" is what lets `detached` actually detach: an inherited pipe would
     // keep this process alive until the client exits.

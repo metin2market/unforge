@@ -42,12 +42,8 @@ export type {
   PowMetrics,
 } from "./spark/challenge.ts";
 export { listGameAccounts, buildAccountsRequest } from "./spark/accounts.ts";
-export {
-  createGameAccount,
-  buildCreateAccountRequest,
-  METIN2_GAME_ID,
-  METIN2_GAME_ENVIRONMENT_ID,
-} from "./spark/create-account.ts";
+export { createGameAccount, buildCreateAccountRequest } from "./spark/create-account.ts";
+export { METIN2_GAME_ID, METIN2_GAME_ENVIRONMENT_ID } from "./metin2.ts";
 export type { CreateGameAccountOptions, CreatedGameAccount } from "./spark/create-account.ts";
 export { attestDevice, buildAttestRequest } from "./spark/iovation.ts";
 export type { AttestDeviceOptions } from "./spark/iovation.ts";
@@ -55,8 +51,8 @@ export { requestLoginCode, buildCodeRequest, codeRefusal } from "./spark/codes.t
 export { regionForGroup, groupForRegion, isRegion, assertRegion, knownRegions } from "./regions.ts";
 export type { AccountGroup, Region } from "./regions.ts";
 export type { RequestCodeOptions } from "./spark/codes.ts";
-export { sparkFetch } from "./http.ts";
-export type { SparkRequest } from "./http.ts";
+export { sparkFetch, sparkHeaders } from "./http.ts";
+export type { SparkHeaderOptions, SparkRequest } from "./http.ts";
 
 export { GAMEFORGE_CERT_PEM } from "./cert.ts";
 export { generateInstallationId, isValidInstallationId } from "./installation-id.ts";

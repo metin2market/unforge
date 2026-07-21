@@ -22,7 +22,6 @@ import {
   type AccountStore,
   type ConfigStore,
   type Device,
-  type GameDirs,
   type GfAccount,
   type GfAccountWithSecrets,
   type StoredGameAccount,
@@ -65,7 +64,6 @@ export interface AppOptions {
 export interface AppSnapshot {
   accounts: GfAccount[];
   launches: LaunchState[];
-  gameDirs: GameDirs;
 }
 
 /** Every state change. A host forwards these to its clients verbatim. */
@@ -436,7 +434,6 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
 
       const state: LaunchState = {
         id: crypto.randomUUID(),
-        accountRef: ref,
         account: gameAccount,
         status: "authenticating",
         elevated: false,
@@ -477,7 +474,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         launches.update(state.id, { status: "awaiting-client", pid, elevated });
         return launches.get(state.id)!;
       } catch (err) {
-        launches.update(state.id, { status: "failed", error: errorMessage(err) });
+        launches.update(state.id, { status: "failed", error: describeError(err).summary });
         throw err;
       }
     },
@@ -497,7 +494,6 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
     snapshot: () => ({
       accounts: store.list(),
       launches: launches.list(),
-      gameDirs: config.gameDirs(),
     }),
     subscribe(fn) {
       listeners.add(fn);

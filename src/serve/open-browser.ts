@@ -14,7 +14,7 @@
 // window drops the UI's heartbeat socket, which tells the server to exit.
 
 import { existsSync } from "node:fs";
-import { openUrl } from "../app";
+import { openUrl } from "../app/index.ts";
 
 /** Known Chromium browsers: default-association ProgId prefix → install sub-path. */
 const CHROMIUM_BROWSERS = [

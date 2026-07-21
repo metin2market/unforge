@@ -45,11 +45,10 @@ export const PowChallenge = z.object({
 export type PowChallenge = z.infer<typeof PowChallenge>;
 
 /** The challenge body: the puzzles plus the instrumentation ops, JSON-encoded in a string. */
-export const Challenge = z.object({
+const Challenge = z.object({
   pow: PowChallenge,
   instrumentation: z.string(),
 });
-export type Challenge = z.infer<typeof Challenge>;
 
 /** A solved sub-challenge: the salt echoed back with the winning nonce. */
 export interface PowSolution {
@@ -208,7 +207,7 @@ export async function solveChallenge(challengeId: string, locale: string): Promi
 }
 
 /** Read a challenge id from a 409 (header first, then body); undefined if it's not a captcha. */
-async function challengeIdFrom(res: Response): Promise<string | undefined> {
+export async function challengeIdFrom(res: Response): Promise<string | undefined> {
   const header = res.headers.get("gf-challenge-id");
   if (header) return header.split(";")[0];
   const body: unknown = await res

@@ -20,12 +20,6 @@ export function parseJson(text: string): unknown {
   }
 }
 
-/** A parsed JSON object, or undefined if the text isn't one (HTML error pages, arrays, junk). */
-export function parseJsonObject(text: string): Record<string, unknown> | undefined {
-  const parsed = parseJson(text);
-  return isRecord(parsed) ? parsed : undefined;
-}
-
 /** The message off a thrown value, whatever it turned out to be. */
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -46,11 +40,4 @@ export function stringField(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const field = value[key];
   return typeof field === "string" ? field : undefined;
-}
-
-/** A string-array field off an unknown object (GameForge's `errorTypes`). */
-export function stringArrayField(value: unknown, key: string): string[] | undefined {
-  if (!isRecord(value)) return undefined;
-  const field = value[key];
-  return Array.isArray(field) && field.every((v) => typeof v === "string") ? field : undefined;
 }

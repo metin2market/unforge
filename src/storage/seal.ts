@@ -65,5 +65,5 @@ export async function unsealSecret(blob: Uint8Array): Promise<string> {
   if (buf.subarray(0, PLAINTEXT_MARKER.length).equals(PLAINTEXT_MARKER)) {
     return buf.subarray(PLAINTEXT_MARKER.length).toString("utf8");
   }
-  return Buffer.from(await dpapi(UNPROTECT, blob)).toString("utf8");
+  return (await dpapi(UNPROTECT, blob)).toString("utf8");
 }
