@@ -48,25 +48,25 @@ test("resolveGfAccount throws on no match", () => {
 });
 
 test("gfAlias derives the local part, or the +tag for a plus-address", () => {
-  expect(gfAlias("crbgames1+unclear2@gmail.com")).toBe("unclear2");
-  expect(gfAlias("crbgames1@gmail.com")).toBe("crbgames1");
+  expect(gfAlias("player1+alt2@example.com")).toBe("alt2");
+  expect(gfAlias("player1@example.com")).toBe("player1");
   expect(gfAlias("a+b+c@x.com")).toBe("b+c"); // everything after the first +
 });
 
 test("resolveGfAccount matches a derived alias and a stored alias, case-insensitively", () => {
-  const plus = [account("id-1", "crbgames1+unclear2@gmail.com")];
-  expect(resolveGfAccount(plus, "unclear2").id).toBe("id-1");
-  expect(resolveGfAccount(plus, "UNCLEAR2").id).toBe("id-1");
+  const plus = [account("id-1", "player1+alt2@example.com")];
+  expect(resolveGfAccount(plus, "alt2").id).toBe("id-1");
+  expect(resolveGfAccount(plus, "ALT2").id).toBe("id-1");
 
   // A stored alias also resolves, and doesn't shadow the derived one.
-  const aliased = [account("id-1", "crbgames1+unclear2@gmail.com", { alias: "main" })];
+  const aliased = [account("id-1", "player1+alt2@example.com", { alias: "main" })];
   expect(resolveGfAccount(aliased, "main").id).toBe("id-1");
-  expect(resolveGfAccount(aliased, "unclear2").id).toBe("id-1");
+  expect(resolveGfAccount(aliased, "alt2").id).toBe("id-1");
   expect(gfHandle(aliased[0])).toBe("main");
 });
 
 test("validateAlias rejects empty, whitespace, numeric, and colliding handles", () => {
-  const pair = [account("a", "crbgames1+one@gmail.com"), account("b", "crbgames1+two@gmail.com")];
+  const pair = [account("a", "player1+one@example.com"), account("b", "player1+two@example.com")];
   expect(() => validateAlias(pair, "a", "  ")).toThrow(/empty/);
   expect(() => validateAlias(pair, "a", "has space")).toThrow(/whitespace/);
   expect(() => validateAlias(pair, "a", "42")).toThrow(/numeric/);

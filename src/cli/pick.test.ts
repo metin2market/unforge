@@ -14,10 +14,10 @@ function summary(over: Partial<GfAccount> & { email: string }): GfAccount {
 
 test("gfAccountOptions labels by handle and hints with email + account count", () => {
   const rows = gfAccountOptions([
-    summary({ id: "a", email: "crbgames1+unclear2@gmail.com" }),
+    summary({ id: "a", email: "player1+alt2@example.com" }),
     summary({
       id: "b",
-      email: "crbgames1@gmail.com",
+      email: "player1@example.com",
       alias: "main",
       gameAccounts: [
         { accountId: "g", displayName: "u", accountGroup: "pt" },
@@ -28,13 +28,13 @@ test("gfAccountOptions labels by handle and hints with email + account count", (
 
   expect(rows[0]).toEqual({
     value: "a",
-    label: "unclear2", // derived from the +tag
-    hint: "crbgames1+unclear2@gmail.com · 0 game account(s)",
+    label: "alt2", // derived from the +tag
+    hint: "player1+alt2@example.com · 0 game account(s)",
   });
   expect(rows[1]).toEqual({
     value: "b",
-    label: "main", // stored alias wins over the derived "crbgames1"
-    hint: "crbgames1@gmail.com · 2 game account(s)",
+    label: "main", // stored alias wins over the derived "player1"
+    hint: "player1@example.com · 2 game account(s)",
   });
 });
 
@@ -45,19 +45,19 @@ test("gameAccountOptions labels by name and hints with region + owning login", (
       displayName: "Hero One",
       accountGroup: "pt",
       gfId: "a",
-      gfEmail: "crbgames1@gmail.com",
+      gfEmail: "player1@example.com",
     },
     {
       accountId: "g-2",
       displayName: "Mage",
       accountGroup: "de",
       gfId: "b",
-      gfEmail: "crbgames1+unclear2@gmail.com",
+      gfEmail: "player1+alt2@example.com",
     },
   ];
   expect(gameAccountOptions(rows)).toEqual([
-    { value: "g-1", label: "Hero One", hint: "pt-PT · crbgames1@gmail.com" },
-    { value: "g-2", label: "Mage", hint: "de-DE · crbgames1+unclear2@gmail.com" },
+    { value: "g-1", label: "Hero One", hint: "pt-PT · player1@example.com" },
+    { value: "g-2", label: "Mage", hint: "de-DE · player1+alt2@example.com" },
   ]);
 });
 
@@ -69,10 +69,10 @@ test("an account whose group has no region still picks, and says so", () => {
       displayName: "Ghost",
       accountGroup: "zz",
       gfId: "c",
-      gfEmail: "crbgames1@gmail.com",
+      gfEmail: "player1@example.com",
     },
   ];
-  expect(gameAccountOptions(rows)[0].hint).toBe("group zz (no region) · crbgames1@gmail.com");
+  expect(gameAccountOptions(rows)[0].hint).toBe("group zz (no region) · player1@example.com");
 });
 
 test("regionOptions offers the installed regions, in the order config reports them", () => {

@@ -14,7 +14,7 @@ const SID = "dc7ecd9b-b350-4ba7-9a9b-b0d55d6c5a4d";
 const CODE = "ba4ed5d8-4b98-4385-b21b-5bbf87deb1a4";
 const session: LaunchTicket = {
   mintCode: () => Promise.resolve(CODE),
-  name: "unclear_xyz",
+  name: "hero_alt",
   numericId: 109411749,
 };
 const lookup = (id: string): LaunchTicket | undefined => (id === SID ? session : undefined);
@@ -27,7 +27,7 @@ const call = (method: string, sessionId: string | undefined = SID) => ({
 
 describe("buildInvocation", () => {
   test("is `--gf` with the session in the environment, not the argv", () => {
-    const { args, env } = buildInvocation({ sessionId: SID });
+    const { args, env } = buildInvocation(SID);
     expect(args).toEqual(["--gf"]);
     expect(env._TNT_SESSION_ID).toBe(SID);
     expect(env._TNT_CLIENT_APPLICATION_ID).toBe(METIN2_APPLICATION_ID);
@@ -53,7 +53,7 @@ describe("answerRpc", () => {
     let n = 0;
     const reMinting: LaunchTicket = {
       mintCode: () => Promise.resolve(`code-${++n}`),
-      name: "unclear_xyz",
+      name: "hero_alt",
       numericId: 1,
     };
     for (let i = 0; i < 3; i++) {
@@ -67,7 +67,7 @@ describe("answerRpc", () => {
     let mints = 0;
     const counting: LaunchTicket = {
       mintCode: () => Promise.resolve(`code-${++mints}`),
-      name: "unclear_xyz",
+      name: "hero_alt",
       numericId: 1,
     };
     await answerRpc(call("queryGameAccountName"), () => counting);
@@ -77,7 +77,7 @@ describe("answerRpc", () => {
   });
 
   test("queryGameAccountName returns the account name", async () => {
-    expect(await answerRpc(call("ClientLibrary.queryGameAccountName"), lookup)).toBe("unclear_xyz");
+    expect(await answerRpc(call("ClientLibrary.queryGameAccountName"), lookup)).toBe("hero_alt");
   });
 
   test("queryGameAccountNumericId returns a number, not a string", async () => {

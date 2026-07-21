@@ -65,14 +65,14 @@ test("accounts.list flattens across logins and can filter to one", async () => {
 });
 
 test("auth.setAlias sets then clears back to the derived handle", async () => {
-  const added = await store.add({ email: "crbgames1+unclear2@gmail.com", password: "pw" });
+  const added = await store.add({ email: "player1+alt2@example.com", password: "pw" });
 
-  const set = await app.auth.setAlias("unclear2", "main");
+  const set = await app.auth.setAlias("alt2", "main");
   expect(set.handle).toBe("main");
   expect(store.get(added.id)?.alias).toBe("main");
 
   const cleared = await app.auth.setAlias("main", null);
-  expect(cleared.handle).toBe("unclear2"); // derived again
+  expect(cleared.handle).toBe("alt2"); // derived again
   expect(store.get(added.id)?.alias).toBeUndefined();
 });
 

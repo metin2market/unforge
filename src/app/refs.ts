@@ -21,8 +21,8 @@ export function binName(): string {
 
 /**
  * Derive a short handle from an email: the local part, then — for a `+tag` address
- * (Gmail-style) — the tag after the `+`. So `crbgames1+unclear2@gmail.com` → `unclear2`,
- * and a bare `crbgames1@gmail.com` → `crbgames1`.
+ * (Gmail-style) — the tag after the `+`. So `player1+alt2@example.com` → `alt2`,
+ * and a bare `player1@example.com` → `player1`.
  */
 export function gfAlias(email: string): string {
   const local = email.split("@")[0] ?? email;
