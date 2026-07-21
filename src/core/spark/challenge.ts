@@ -5,7 +5,7 @@
 //
 // Both halves of the submit are reproduced headless: the puzzle is plain hashcash
 // (`solvePow`), and the `instrumentation` payload is just ops GF itself sends us to
-// eval (instrumentation.ts). See docs/pow-captcha.md.
+// eval (instrumentation.ts). See docs/captcha.md.
 
 import { getLogger } from "@logtape/logtape";
 import { z } from "zod";

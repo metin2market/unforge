@@ -5,7 +5,7 @@
 // (measured 11s and 48s for the same client), so `start` returns as soon as the client
 // process exists and the rest is observed. That is also what lets one long-lived host run
 // many launches: the alternative — a call that blocks for the life of the game — can serve
-// exactly one. See docs/handoff.md.
+// exactly one. See docs/launch.md.
 
 import { getLogger } from "@logtape/logtape";
 import { bareMethod } from "../core/handoff/index.ts";

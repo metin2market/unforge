@@ -50,7 +50,7 @@ finally {
         $n = (Get-Content $latest.FullName | Measure-Object -Line).Lines
         Write-Host "  Captured $n request(s) -> scripts\captures\$($latest.Name)" -ForegroundColor Yellow
         # Snapshot the launcher console log alongside it: it is a rolling file and the
-        # only record of the conditional PoW-captcha flow (see docs/pow-captcha.md).
+        # only record of the conditional PoW-captcha flow (see docs/captcha.md).
         $browserLog = Join-Path $env:LOCALAPPDATA 'Gameforge4d\GameforgeClient\browser.log'
         if (Test-Path $browserLog) {
             $snap = Join-Path (Join-Path $here 'captures') ($latest.BaseName + '.browser.log')

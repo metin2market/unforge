@@ -1,5 +1,5 @@
 // Scrubbing for the request trace. The trace exists *because* the log trail redacts too much
-// (docs/logging.md), so this removes credentials only — the material a GameForge diagnosis
+// (docs/architecture.md → Logging), so this removes credentials only — the material a GameForge diagnosis
 // actually reads (blackbox, installation ids, challenge ids, pow, cookies, email) stays raw.
 //
 // LogTape's `redactByField` can't do this job: it wraps a *sink* and matches structured record

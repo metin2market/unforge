@@ -1,7 +1,7 @@
 // Logging setup for the entry points. `core` and the app layer emit through LogTape
 // (`getLogger(["unforge", …])`); the CLI and `serve` call `configureLogging` once at
 // startup to wire the sinks. Unconfigured, every log call is a no-op, so `core` stays
-// pure. See docs/logging.md.
+// pure. See docs/architecture.md (Logging).
 
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";

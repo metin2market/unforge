@@ -3,7 +3,7 @@
 //
 // The blackbox is the iovation device fingerprint (see docs/blackbox.md), passed
 // in as an input here. On 409 GameForge either demands a captcha — solved and retried
-// here (docs/pow-captcha.md) — or rejects the credentials.
+// here (docs/captcha.md) — or rejects the credentials.
 
 import { z } from "zod";
 import {

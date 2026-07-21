@@ -29,7 +29,7 @@ describe("createSession response handling", () => {
   });
 
   // Login is captcha-gated under risk-scoring, so a challenge is solved and the login
-  // retried rather than surfaced — see docs/pow-captcha.md.
+  // retried rather than surfaced — see docs/captcha.md.
   test("409 with gf-challenge-id → solves the captcha and retries the login", async () => {
     let logins = 0;
     const retry: { challenge: string | null } = { challenge: null };

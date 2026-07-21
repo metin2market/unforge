@@ -4,7 +4,7 @@
 // if it ever doesn't, the shim has drifted from a real browser and live submits will fail
 // with 409 CHALLENGE_VERIFICATION_FAILED.
 //
-// Captures are gitignored, so this skips on a clean clone. See docs/pow-captcha.md.
+// Captures are gitignored, so this skips on a clean clone. See docs/captcha.md.
 
 import { describe, expect, test } from "bun:test";
 import { findRequest, hasCaptures } from "./support/captures.ts";

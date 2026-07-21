@@ -25,7 +25,7 @@ import { pickGameAccount, pickGfAccount, pickRegion } from "./pick.ts";
 
 // Status/progress/errors go through the logger (stderr + the redacted file trail); command
 // *results* — codes, lists, device reports — stay on `console.log` (stdout) so they pipe
-// cleanly and secrets never reach the log file. See docs/logging.md.
+// cleanly and secrets never reach the log file. See docs/architecture.md (Logging).
 const log = getLogger(["unforge", "cli"]);
 
 // The app touches the filesystem (and DPAPI), so it's opened lazily inside the actions that
@@ -108,7 +108,7 @@ program
     await configureLogging({ verbose: verbose() });
     // Always traced, no flag: a GameForge refusal is usually only diagnosable from the run that
     // hit it, and that run is over by the time anyone thinks to ask for a trace. Goes into the
-    // normal log at `trace` level — see docs/logging.md.
+    // normal log at `trace` level — see docs/architecture.md (Logging).
     installFetchTrace();
   })
   // No subcommand = double-clicked from the file manager: run as the "app" — detach the

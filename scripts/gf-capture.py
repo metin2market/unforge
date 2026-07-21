@@ -58,7 +58,7 @@ def http_connect(flow: http.HTTPFlow) -> None:
 def tls_clienthello(data) -> None:
     # Record the launcher's TLS fingerprint for the auth host so we can rebuild its exact
     # JA3 offline — the test for whether GameForge pins the launcher's CEF-72 fingerprint
-    # to grade the sessions token (see docs/status.md). mitmproxy already parses the
+    # to grade the sessions token — a settled dead end (see docs/blackbox.md). mitmproxy parses the
     # ClientHello, so we grab cipher_suites + extensions (+ raw bytes if available), which
     # is enough to compute JA3 without depending on any one attribute name.
     global _diag_written

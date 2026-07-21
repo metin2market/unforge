@@ -1,169 +1,103 @@
-# The CLI & state layer — vocabulary, command surface, design
+# The CLI
 
-The auth chain works ([status.md](./status.md)); this doc covers the layer built on top that
-turns a proven flow into a tool you operate: **stable per-account devices, a consistent CLI, and
-the launch wiring**. It fixes the vocabulary first (so nothing gets conflated), then lays out the
-command surface and the deliberate design decisions behind it.
+The tool you operate: the vocabulary first (so nothing gets conflated), then the command surface.
+Both frontends — the CLI and the `serve` web UI — drive the same `openApp()` object
+([architecture.md](./architecture.md)), so this surface is where command logic is _named_, not where
+it lives.
 
-## The two entities — GameForge account vs game account
+## The two entities
 
-This is inherently confusing because it's confusing on GameForge's side too. Anchor to what
-the real launcher shows:
+Inherently confusing, because it is confusing on GameForge's side too. Anchor to the real launcher:
+its **profile** says _GameForge account_ (email + password, shared across OGame / NosTale / Metin2);
+opening **a game** lists _game accounts_ (the per-game logins that own characters). One GameForge
+account can hold several game accounts — **that is the multibox lever**.
 
-- Open the launcher's **profile** → it says **GameForge account**. That's the email + password
-  — the top-level login, shared across all GF titles (OGame, NosTale, Metin2).
-- Open a **specific game** → it lists **game accounts**. Those are the per-game logins that own
-  characters/servers. One GameForge account can hold **several** game accounts (this is the
-  multibox lever).
+So: **GameForge account → owns → game accounts → own → characters.** In prose always use the full
+names, never a bare "account" for either and never "user". In the **CLI**, the noun `account`
+defaults to the **game account**, because that's what ~90% of users mean: most people have one
+GameForge login and several game accounts, and touch the game accounts daily. The GameForge account
+is the rarely-touched credential, so it lives under `auth` — exactly like `gh`, where the entity is
+"your GitHub account" but the namespace is `auth`.
 
-So the hierarchy is **GameForge account → owns → game accounts → own → characters**. In prose we
-always use the full names **"GameForge account"** and **"game account"** — never a bare "account"
-for either, never "user." In the **CLI**, though, the noun `account` defaults to the **game
-account**, because that's what ~90% of users mean by "account" (most people have one GameForge
-login and several game accounts, and touch the game accounts daily). The GameForge account is the
-rarely-touched credential, so it lives under `auth` — exactly like `gh`, where the entity is "your
-GitHub account" but the command namespace is `auth`.
-
-## Vocabulary — one name per concept (lock this)
-
-| Concept                                  | Prose name             | CLI home                     | What it is                                                                |
-| ---------------------------------------- | ---------------------- | ---------------------------- | ------------------------------------------------------------------------- |
-| Email + password top-level login         | **GameForge account**  | `auth` (`<gf>` ref)          | authenticate once; owns game accounts; carries the device                 |
-| Per-game child login                     | **game account**       | `account` (the default noun) | from `/user/accounts`; has a region; you launch into one; globally unique |
-| Virtual hardware (GPU/screen/RAM/hashes) | **device profile**     | `auth device`                | one per GameForge account, distinct across them                           |
-| clientId + drifting vector               | part of the **device** | `auth device`                | game1's `x-game` / `x-vec`, persisted per GameForge account               |
-| `TNT-Installation-Id` UUID               | **installation id**    | `auth device`                | one per GameForge account; must contain a digit                           |
-| Machine-level per-region game dir        | **config**             | `config`                     | not per account; where you installed the client (`launch` needs it)       |
+| Concept                                  | Prose name             | CLI home                     | What it is                                                |
+| ---------------------------------------- | ---------------------- | ---------------------------- | --------------------------------------------------------- |
+| Email + password top-level login         | **GameForge account**  | `auth` (`<gf>` ref)          | authenticate once; owns game accounts; carries the device |
+| Per-game child login                     | **game account**       | `account` (the default noun) | from `/user/accounts`; has a region; globally unique      |
+| Virtual hardware (GPU/screen/RAM/hashes) | **device profile**     | `auth device`                | one per GameForge account, distinct across them           |
+| clientId + drifting vector               | part of the **device** | `auth device`                | game1's `x-game` / `x-vec`, persisted per GF account      |
+| `TNT-Installation-Id` UUID               | **installation id**    | `auth device`                | one per GameForge account; must contain a digit           |
+| Machine-level per-region game dir        | **config**             | `config`                     | not per account; where you installed the client           |
 
 A GameForge account **owns a device** (installation id + identity + hardware profile bundled),
-minted once and reused forever — that's what keeps its fingerprint stable and distinct. The device
-sits at the GameForge-account layer (that's where the blackbox is presented), and all game accounts
-under one login already share it, so distinctness only matters **across GameForge accounts**. See
-[blackbox.md](./blackbox.md) for why stable-distinct matters.
+minted once and reused forever. It sits at the GameForge-account layer — that's where the blackbox
+is presented — so all game accounts under one login share it and distinctness only matters **across**
+GameForge accounts.
 
-## CLI shape — noun → verb, `auth` + `account` split
+## The surface
 
-Mature CLIs (`docker`, `gh`, `gcloud`) converge on the same rules:
+Mature CLIs (`docker`, `gh`, `gcloud`) converge on the same rules: two levels of `<noun> <verb>`,
+`auth` as a noun namespace rather than a loose verb, consistent verbs across nouns, and one bare
+hot-path verb (`docker run`). `launch` earns that last one.
 
-1. **Two levels: `<noun> <verb>`** — `docker container create`, not `docker create-container`.
-2. **`auth` is a noun namespace, not a loose verb** — `gh auth login/logout/status`. The GameForge
-   account (the credential) lives here, set up once and then forgotten.
-3. **Consistent verbs across nouns** (`list`, `logout`, `show`).
-4. **One bare hot-path verb is OK** — `docker run` is top-level though it's "really"
-   `docker container run`, because it's the product's whole point. `launch` earns the same.
-
-```
+```sh
 # launch — the product's whole point; top-level like `docker run`
-unforge launch [game-account]      # auth + spawn the client (picks the account if omitted)
+unforge launch [game-account]        # auth + spawn the client (picks the account if omitted)
 
-# account — game accounts, the everyday noun (bare "account" = game account)
-unforge account list [--gf <gf>]   # game accounts across your GameForge logins
-unforge account sync [--gf <gf>]   # re-fetch them from GameForge, replacing what's stored
-unforge account create [name]      # create one under a login (picks/prompts if omitted) — the multibox lever
-unforge account code <game-account># mint + print a one-time login code (test / diagnostic)
+# account — game accounts, the everyday noun
+unforge account list [--gf <gf>]     # game accounts across your GameForge logins
+unforge account sync [--gf <gf>]     # re-fetch from GameForge, replacing what's stored
+unforge account create [name]        # create one under a login — the multibox lever
+unforge account code <game-account>  # mint + print a one-time login code (diagnostic)
 
-# auth — your GameForge account(s); authenticate once, then forgotten (mirrors `gh auth`)
-unforge auth register              # create a GF account via the API (solves the captcha in-flow) + record
-unforge auth login                 # authenticate a GF account; mint its device; discover its game accounts
-unforge auth list                  # GameForge accounts (handle · email · sessions)  (like `gh auth status`)
-unforge auth alias <gf> [alias]    # set/clear a short handle (omit to clear back to the email-derived one)
-unforge auth logout <gf>           # confirms first (--yes to skip)
-unforge auth device show <gf>      # inspect the device: profile, installation id, identity
-unforge auth device regen <gf>     # roll a NEW device profile for this account (confirms first; --yes)
+# auth — your GameForge account(s); authenticate once, then forgotten
+unforge auth register                # create a GF account via the API (captcha solved in-flow)
+unforge auth login                   # authenticate; mint its device; discover its game accounts
+unforge auth list                    # GameForge accounts (handle · email · sessions)
+unforge auth alias <gf> [alias]      # set/clear a short handle
+unforge auth logout <gf>             # confirms first (--yes to skip)
+unforge auth device show <gf>        # inspect the device: profile, installation id, identity
+unforge auth device regen <gf>       # roll a NEW device for this account (confirms first)
 
-# config — machine-level, set once (the cert needs no config: it's bundled)
+# config — machine-level, set once (the cert is bundled, so it needs none)
 unforge config set game-dir <path>   # finds the client, fills every region it sees
 unforge config list
 
-# the web UI (already works)
-unforge serve
+unforge serve                        # the local web UI over the same store + core
 ```
 
-Deliberate design decisions:
+**Refs, not an active account.** `gh` needs `auth switch` because its commands run in an ambient
+context (the current repo implies the account); here every command takes an explicit,
+**globally-unique** game-account ref, so there is no ambient state to switch. GF accounts are
+addressed by a short **handle** — a stored alias if set, else derived from the email (the local
+part, or the `+tag` of a plus-address: `you+alt2@example.com` → `alt2`). Any `<gf>`/`--gf` ref
+accepts the handle, the full email, or an id prefix; ambiguity is **rejected, never guessed**
+([`refs.ts`](../src/app/refs.ts) is pure, so those rules are testable without I/O). The one command
+that can't take a game-account ref is `account create` — the account doesn't exist yet — so it takes
+the owning login by `--gf`, defaulting to your sole login or a picker.
 
-- **No `auth switch` / active account.** `gh` needs it because its commands run in an ambient
-  context (the current repo implies the account). Here every command takes an explicit,
-  **globally-unique** game-account ref, so there's no ambient state to switch. The one command that
-  can't use a game-account ref is `account create` (the account doesn't exist yet) — it takes the
-  owning login by `--gf`, defaulting to your sole login or an interactive picker. Revisit only if we
-  ever support multiple games.
-- **GF accounts are addressed by a short handle, not just the email.** A **handle** is a stored alias
-  (`auth alias`) if set, else derived from the email — the local part, or the `+tag` of a Gmail
-  plus-address (`crbgames1+unclear2@gmail.com` → `unclear2`). Any `<gf>`/`--gf` ref accepts the
-  handle, the full email, or an id/prefix; ambiguity is rejected. So multibox never means typing
-  full emails.
-- **Prompts and confirmations run through [@clack/prompts](https://github.com/bombshell-dev/clack)**
-  (`src/cli/prompts.ts`): one style for text, secrets, yes/no, and pick-one. A missing required value
-  is prompted **only** with a TTY — non-interactive use falls back to flags (so scripts are
-  unaffected), and destructive actions (`logout`, `device regen`) confirm first unless `--yes`.
-- **`launch` is top-level, not duplicated under `account`.** One obvious home beats two. The
-  lower-level `code` (raw login code) stays under `account` as a diagnostic — hot path bare,
-  plumbing namespaced, same split as docker.
-- **`region` is per-account; `locale` is not exposed at all.** A game account's region decides both
-  which client it launches and which servers it's minted against, and is fixed at creation
-  ([protocol.md](./protocol.md#regions)). So `--region` appears on exactly two commands, for the
-  two things that genuinely depend on it: `account create`, where it is the permanent choice
-  (the sole installed client if there's one, else a picker — same shape as `--gf`), and
-  `config set game-dir`, where it labels a client dir the folder name doesn't name. Nothing else
-  takes it — notably not `auth login`/`register`, since the device is region-free
-  ([blackbox.md](./blackbox.md)). The GF locale only colours GF's own error text and the captcha
-  page, so it is not a setting at any layer: `account create` passes its own region, and the two
-  auth calls send the captured launcher constant in `gf-session.ts`. It is still sent — every
-  genuine launcher body carries one, and omitting it would make ours distinguishable.
-- **`account sync` exists because the stored game accounts are a cache, not a record.** Login,
-  `create` and `launch` all re-list them as a side effect; `sync` is that refresh on its own, for
-  an account made on the website, one deleted or renamed there, or a store that emptied them on a
-  shape change ([accounts.md](./accounts.md)). It **replaces** rather than merges — GF's answer is
-  complete, so anything it doesn't list no longer exists.
-- **The group is stored; the region is derived at the point of use.** `storage` keeps GameForge's
-  `accountGroup` verbatim, so a new table row takes effect on the next read with no migration.
-  The two uses each resolve it in one call — render it (`regionLabel`, the single place a group
-  becomes text, so no frontend describes an account differently) and launch into it
-  (`launchRegion`) — so no resolved field rides along on the account.
-- **`auth login` persists the password, unlike `gh`'s token.** GF has no refresh endpoint, so
-  unattended re-auth needs the password again ([accounts.md](./accounts.md)) — the help text must
-  say so honestly. `login` should also _actually authenticate_ (validate credentials + populate the
-  game-account list in one shot), so it proves the account works instead of recording it blind.
-- **`auth register` creates the account via the API and records it.** `createGfAccount` calls
-  `POST /users` (solving the captcha in-flow, [pow-captcha.md](./pow-captcha.md)), then the same
-  authenticate + persist as `auth login`, with the **same device** throughout so registration and its
-  immediate login don't churn the fingerprint. Mirrors `login`'s options (`--email/--password/--alias`).
-- **`auth device` is a mild semantic stretch** (a device is identity, not strictly auth) but beats a
-  third top-level noun. Keep it two words; if `device` grows, promote it to its own namespace rather
-  than nesting deeper.
+**Prompts** run through [@clack/prompts](https://github.com/bombshell-dev/clack)
+([`src/cli/prompts.ts`](../src/cli/prompts.ts)): one style for text, secrets, yes/no, pick-one. A
+missing required value is prompted **only** with a TTY, so scripts fall back to flags unaffected;
+destructive actions (`logout`, `device regen`) confirm first unless `--yes`.
 
-## How it's wired
+**`--region` appears on exactly two commands**, the two things that genuinely depend on it:
+`account create`, where it is the permanent choice, and `config set game-dir`, where it labels a
+client dir the folder name doesn't name. Notably not `auth login`/`register` — the device is
+region-free. Why, and what the other four region-ish names mean: [regions.md](./regions.md).
 
-The **application layer** ([`src/app/`](../src/app/)) composes `core` + `storage` + `launch`.
-`openApp()` binds them once and returns `auth`, `accounts`, and `launches`; both frontends —
-the CLI ([`src/cli/`](../src/cli/index.ts)) and the `serve` web UI — drive that one object, so
-command logic lives in one place rather than per frontend. Every CLI action is a call into it.
+**`account sync` exists because the stored game accounts are a cache, not a record.** Login,
+`create` and `launch` all re-list them as a side effect; `sync` is that refresh on its own, for an
+account made on the website, one deleted or renamed there, or a store that emptied them on a shape
+change ([storage.md](./storage.md)). It **replaces** rather than merges — GF's answer is complete,
+so anything it doesn't list no longer exists.
 
-| Piece                                                          | Where                       |
-| -------------------------------------------------------------- | --------------------------- |
-| `openApp()` — the workflows (`auth` / `accounts` / `launches`) | `src/app/app.ts`            |
-| `GfSession` — an authenticated login; owns blackbox freshness  | `src/app/gf-session.ts`     |
-| ref resolution — handle / email / name / id prefix             | `src/app/refs.ts` (pure)    |
-| a group as a person reads it (`regionLabel`)                   | `src/app/region-text.ts`    |
-| the handoff pipe server                                        | `src/app/handoff-server.ts` |
-| launch tracking + status                                       | `src/app/launches.ts`       |
-| cert PEM — bundled, local file overrides                       | `src/app/cert.ts`           |
-| the shapes the web UI receives (region pre-rendered)           | `src/serve/wire.ts`         |
-| `Device` + `createDevice()`                                    | `src/storage/device.ts`     |
-| store — sealed per-account JSON; config — per-region game dirs | `src/storage/`              |
-| `spawnClient()` — the Windows client spawn                     | `src/launch/`               |
-| CLI (`auth`/`account`/`launch`/`config`/`serve`)               | `src/cli/`                  |
+**`auth login` persists the password, unlike `gh`'s token.** GF has no refresh endpoint, so
+unattended re-auth needs it again ([storage.md](./storage.md)) — and the help text says so honestly.
+`login` also _actually authenticates_ (validating credentials and populating the game-account list
+in one shot) rather than recording the account blind. `auth register` is the same flow with
+`POST /users` in front, reusing **one device** throughout so registration and its immediate login
+don't churn the fingerprint.
 
-**The device primitive** — `createDevice()` is what makes distinct-per-account real. The profile
-half **varies** the fields that differ between real machines (GPU, screen, RAM, cores, every
-opaque `*Hash`/`*Fingerprint`) and **keeps constant** `userAgent`/`browserName`/schema (every
-genuine GF launcher is the same CEF/Chrome-72 build — varying those would be the tell). Minted
-once when a GameForge account is first authenticated and reused forever; `auth device regen`
-rolls the whole device at once, since it's one thing.
-
-**`refs.ts` is pure** — it resolves over a plain account list, not a store, so a frontend can
-turn what the user typed into an account without reaching for persistence, and its rules
-(ambiguity is rejected, never guessed) are testable without any I/O.
-
-Where the project goes from here — multibox at scale and the open product questions — lives in
-[status.md → What's next](./status.md).
+**`auth device` is a mild semantic stretch** (a device is identity, not strictly auth) but beats a
+third top-level noun. Keep it two words; if `device` grows, promote it rather than nest deeper.
+`device regen` rolls profile, identity and installation id **at once**, because they are one thing.

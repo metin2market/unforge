@@ -1,7 +1,7 @@
 // The on-disk half of the store: the entire account set as one JSON blob, DPAPI-sealed
 // as a whole (see seal.ts). Everything is encrypted at rest — email, installId,
 // secrets — not just secret columns. Affordable because the dataset is tiny (tens of
-// accounts), so we decrypt-all on load and encrypt-all on save. Design: docs/accounts.md.
+// accounts), so we decrypt-all on load and encrypt-all on save. Design: docs/storage.md.
 
 import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
 import { z } from "zod";

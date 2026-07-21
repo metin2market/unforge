@@ -22,7 +22,7 @@ export {
   buildLogoutRequest,
 } from "./spark/sessions.ts";
 export type { CreateSessionOptions } from "./spark/sessions.ts";
-// Headless registration: POST /users, solving the PoW captcha in-flow. See docs/pow-captcha.md.
+// Headless registration: POST /users, solving the PoW captcha in-flow. See docs/captcha.md.
 export { createGfAccount, buildCreateGfAccountRequest } from "./spark/create-gf-account.ts";
 export type { CreateGfAccountOptions } from "./spark/create-gf-account.ts";
 export {

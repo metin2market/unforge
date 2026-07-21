@@ -2,7 +2,7 @@
 // it keeps the whole account set in memory (loaded once), serves reads from it, and on
 // every write reloads-under-lock → mutates → seals → atomic-writes, so concurrent
 // writers on a multibox host can't clobber each other. `core` never imports this; the
-// application layer composes the two. Design: docs/accounts.md.
+// application layer composes the two. Design: docs/storage.md.
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";

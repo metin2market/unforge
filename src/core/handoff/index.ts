@@ -4,7 +4,7 @@
 //
 // Hosting the pipe is not here: a server binds a machine-wide OS resource and has a
 // lifetime, so it belongs to the application layer (src/app/handoff-server.ts).
-// See docs/handoff.md.
+// See docs/launch.md.
 
 export {
   answerRpc,

@@ -1,7 +1,7 @@
 // The client handoff protocol — pure. Everything here is dictated by GameForge: the pipe name, the
 // invocation, the method set, and the wire shapes. No I/O of its own (the mint is injected via the
 // ticket), so it's all unit-testable.
-// See docs/handoff.md.
+// See docs/launch.md.
 
 import type { LaunchTicket, RpcRequest } from "./types.ts";
 

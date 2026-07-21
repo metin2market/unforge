@@ -456,7 +456,7 @@ export async function openApp(opts: AppOptions = {}): Promise<App> {
         );
 
         launches.update(state.id, { status: "spawning" });
-        // Minted per ask, never stored — see docs/handoff.md.
+        // Minted per ask, never stored — see docs/launch.md.
         // Retryable: a 401 means the mint didn't happen, so no code is left outstanding.
         const sessionId = pipe.register({
           mintCode: () => {

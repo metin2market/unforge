@@ -7,7 +7,7 @@
 //
 // So there is nothing to reverse — we run the same ops against a minimal DOM. Verified
 // against a real launcher capture: its own 15 ops replay through this shim to the exact
-// results CEF submitted. See docs/pow-captcha.md.
+// results CEF submitted. See docs/captcha.md.
 
 import { z } from "zod";
 import { parseJson } from "../../util/index.ts";

@@ -6,7 +6,7 @@
 // a private GF PKI, not the Windows store). Hooking OpenSSL's SSL_write/SSL_read
 // sees the plaintext BEFORE encryption / AFTER decryption, defeating the pinning, so
 // we can finally read what the launcher sends that we don't. This is the "capture
-// everything" half of the out-of-band-grade hunt (see docs/status.md).
+// everything" fallback for the pinned native layer (see docs/capturing-traffic.md).
 //
 // The launcher ships OpenSSL 1.0 (ssleay32.dll = SSL, libeay32.dll = crypto). The
 // CEF/Chromium layer (spark, pow-captcha) uses BoringSSL inside libcef.dll and is

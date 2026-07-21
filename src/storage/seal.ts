@@ -1,7 +1,7 @@
 // At-rest sealing of secret columns via Windows DPAPI (CurrentUser scope). The key
 // is machine+user-bound and OS-managed — no key held here, no passphrase, works
 // unattended. Defeats file theft / backup / accidental commit; does NOT defeat a
-// live box compromised as the same user. Rationale + threat model: docs/accounts.md.
+// live box compromised as the same user. Rationale + threat model: docs/storage.md.
 //
 // Reached through Windows PowerShell (ProtectedData lives in the full .NET Framework;
 // pwsh 7 / .NET Core doesn't ship it). Secrets cross the process boundary over stdin

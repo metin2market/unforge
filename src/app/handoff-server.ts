@@ -4,7 +4,7 @@
 //
 // It lives in the application layer, not core: the wire protocol is GameForge's design
 // (core/handoff), but binding an OS resource and holding a registry is runtime state with a
-// lifetime. Windows-only. See docs/handoff.md.
+// lifetime. Windows-only. See docs/launch.md.
 
 import net from "node:net";
 import {
